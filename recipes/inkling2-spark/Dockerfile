@@ -16,6 +16,6 @@ FROM vllm/vllm-openai@sha256:3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27d
 COPY --from=build /src/zig-out/native/bin/tensorfold-native /usr/local/bin/tensorfold-native
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /opt/tensorfold/
 COPY LICENSES /opt/tensorfold/LICENSES
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nccl/lib:/usr/local/cuda/lib64:/usr/local/cuda/compat \
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nccl/lib:/usr/local/cuda/lib64 \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 ENTRYPOINT ["tensorfold-native"]

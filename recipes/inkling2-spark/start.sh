@@ -44,6 +44,7 @@ exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gp
     -e "TF_INKLING_RANK=$rank" -e TF_INKLING_WORLD=2 \
     -e "NCCL_COMM_ID=$master:${MASTER_PORT:-29597}" -e "NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME" \
     -e NCCL_RUNTIME_CONNECT=0 -e NCCL_CUMEM_ENABLE=0 -e NCCL_CUMEM_HOST_ENABLE=0 \
+    -e LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nccl/lib:/usr/local/cuda/lib64 \
     -e "TF_ROCE=${TF_ROCE:-1}" -e "TENSORFOLD_MEMORY_RESERVE_GIB=${RESERVE_GIB:-6}" \
     -v "$(cd "$model" && pwd):/model:ro" "$image" \
     serve /model --backend cuda --device 0 --context "${CONTEXT:-524288}" \

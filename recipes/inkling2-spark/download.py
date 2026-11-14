@@ -47,6 +47,8 @@ def prepare_metadata(root):
     for name in ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"):
         write(root / name, (root / "auxiliary" / name).read_bytes())
     original = (root / "auxiliary/chat_template.jinja").read_text()
+    # Numeric efforts already have numeric types; the native template engine has no float filter.
+    original = original.replace("eff | float", "eff")
     framing = ('{%- if enable_thinking is not defined or not enable_thinking -%}'
                '{%- set reasoning_effort = "none" -%}{%- endif -%}')
     prefix = '{%- if add_generation_prompt -%}<|message_model|><|content_text|>{%- endif -%}'
