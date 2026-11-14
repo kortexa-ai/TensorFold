@@ -13,6 +13,7 @@ const backend = @import("backend.zig");
 const link = @import("link.zig");
 
 pub const model_type = "inkling2";
+pub const greedy_only = true;
 pub const formats: []const []const u8 = &.{"exl3"};
 pub const default_context: i64 = cfg.target_context;
 pub const max_segments: u32 = 1;

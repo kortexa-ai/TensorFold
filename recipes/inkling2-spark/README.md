@@ -71,6 +71,9 @@ clients use an authenticated proxy or the native server's authentication flags.
 Both ranks must use the same context. The script detects the transport interface;
 set `NCCL_SOCKET_IFNAME` explicitly if routing chooses the wrong connection.
 `TF_ROCE=0` selects the native NCCL fallback when direct RoCE is unavailable.
+The matching RDMA adapter is detected from that interface; `TF_ROCE_HCA` can
+select it explicitly. The text profile stops at either the assistant-message
+boundary or the checkpoint's end-sampling token.
 
 Both ranks run in the foreground without a restart policy. To stop, send an
 interrupt to each launcher or `docker stop tensorfold-inkling2-rank0` and
