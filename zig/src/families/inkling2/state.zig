@@ -108,7 +108,7 @@ pub const State = struct {
         s.top1 = try s.take(w.share.world * 16);
         s.workspace = try s.take(64 << 20);
         const nb = (pairs + 1023) / 1024;
-        s.plan = .{ .members = try s.take(pairs * 4), .items = try s.take(cuda.grouped.maxItems(pairs, w.share.expertCount(), 16) * 3 * 4), .counts = try s.take((w.share.expertCount() + 2) * 4), .rank = try s.take(pairs * 4), .hist = try s.take(nb * w.share.expertCount() * 4) };
+        s.plan = .{ .members = try s.take(pairs * 4), .items = try s.take(cuda.grouped.maxItems(pairs, w.share.expertCount() + 1, 16) * 3 * 4), .counts = try s.take((w.share.expertCount() + 2) * 4), .rank = try s.take(pairs * 4), .hist = try s.take(nb * (w.share.expertCount() + 1) * 4) };
         try s.clear();
         return s;
     }

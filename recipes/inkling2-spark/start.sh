@@ -30,6 +30,13 @@ else:
 PY
 )
 fi
+hca=${TF_ROCE_HCA:-$(python3 - "$NCCL_SOCKET_IFNAME" <<'PY'
+from pathlib import Path
+import sys
+print(','.join(p.name for p in Path('/sys/class/infiniband').glob('*')
+               if (p / 'device/net' / sys.argv[1]).exists()))
+PY
+)}
 name=${INKLING_CONTAINER:-tensorfold-inkling2-rank$rank}
 image=${INKLING_IMAGE:-tensorfold-inkling2:spark}
 if docker container inspect "$name" >/dev/null 2>&1; then
@@ -43,6 +50,7 @@ exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gp
     --label ai.kortexa.inkling2.native=1 --label "ai.kortexa.inkling2.rank=$rank" \
     -e "TF_INKLING_RANK=$rank" -e TF_INKLING_WORLD=2 \
     -e "NCCL_COMM_ID=$master:${MASTER_PORT:-29597}" -e "NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME" \
+    -e "TF_ROCE_HCA=$hca" -e "NCCL_IB_HCA=${NCCL_IB_HCA:-$hca}" \
     -e NCCL_RUNTIME_CONNECT=0 -e NCCL_CUMEM_ENABLE=0 -e NCCL_CUMEM_HOST_ENABLE=0 \
     -e LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nccl/lib:/usr/local/cuda/lib64 \
     -e "TF_ROCE=${TF_ROCE:-1}" -e "TENSORFOLD_MEMORY_RESERVE_GIB=${RESERVE_GIB:-6}" \

@@ -41,7 +41,8 @@ extern "C" __global__ void tf_ik_route(const float* logits, const float* bias,
                           + ((values[4] + values[6]) + (values[5] + values[7]));
         for (int s = 0; s < 8; ++s) {
             const int id = chosen[s];
-            picks[row * 8 + s] = id >= first && id < first + owned ? id - first : -1;
+            // The shared planner requires nonnegative IDs; its existing skip bucket owns remote pairs.
+            picks[row * 8 + s] = id >= first && id < first + owned ? id - first : owned;
             gamma[row * 8 + s] = expf(logs[s] - (maximum + logf(total))) * 8.f;
         }
     }

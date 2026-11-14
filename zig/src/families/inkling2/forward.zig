@@ -56,9 +56,9 @@ pub const Forward = struct {
     fn projectExperts(f: *Forward, m: wt.Matrix, input: u64, input_slots: usize, output: u64, rows: usize, splits: usize) !void {
         const pairs = rows * cfg.topk;
         const count = f.w.share.expertCount();
-        const items = cuda.grouped.maxItems(pairs, count, 16);
+        const items = cuda.grouped.maxItems(pairs, count + 1, 16);
         try f.k.go(.rotate, f.stream, .{ .x = @intCast(pairs), .y = @intCast(m.k / 128) }, 32, .{ input, f.s.picks, m.suh, f.s.rotated, int(m.k), int(input_slots), int(count) });
-        try f.k.dot(f.stream, .{ .x0 = f.s.rotated, .x1 = f.s.rotated, .tp0 = m.ptrs, .tp1 = m.ptrs, .k2_0 = m.bits, .k2_1 = m.bits, .uids = f.s.plan.items, .ucount = f.s.plan.counts, .members = f.s.plan.members, .z = f.s.z, .k = int(m.k), .n = int(m.n), .p = int(pairs), .sk = int(splits), .maxm = 16, .slots = cfg.topk, .nu = int(items), .mats = 1, .ns = 0, .standard = 1, .skip = -1 });
+        try f.k.dot(f.stream, .{ .x0 = f.s.rotated, .x1 = f.s.rotated, .tp0 = m.ptrs, .tp1 = m.ptrs, .k2_0 = m.bits, .k2_1 = m.bits, .uids = f.s.plan.items, .ucount = f.s.plan.counts, .members = f.s.plan.members, .z = f.s.z, .k = int(m.k), .n = int(m.n), .p = int(pairs), .sk = int(splits), .maxm = 16, .slots = cfg.topk, .nu = int(items), .mats = 1, .ns = 0, .standard = 1, .skip = int(count) });
         try f.k.go(.unrotate, f.stream, .{ .x = @intCast(pairs), .y = @intCast(m.n / 128) }, 32, .{ f.s.z, f.s.picks, m.svh, output, int(pairs), int(m.n), int(splits), int(count) });
     }
 
@@ -104,7 +104,7 @@ pub const Forward = struct {
         try f.k.go(.route, stream, .{ .x = @intCast(rows) }, 512, .{ s.router, l.router_bias, s.picks, s.gamma, int(share.expertStart()), int(share.expertCount()) });
         try f.k.go(.quant, stream, .{ .x = @intCast(rows) }, 256, .{ s.mlp_input, s.quant_up, int(h), @as(i32, @intFromBool(index < 40)) });
         const pairs = rows * cfg.topk;
-        try f.k.plan.route(stream, s.picks, pairs, share.expertCount(), 16, s.plan);
+        try f.k.plan.route(stream, s.picks, pairs, share.expertCount() + 1, 16, s.plan);
         try f.zero(s.gu, pairs * h * 2);
         try f.zero(s.down, pairs * h * 2);
         try f.projectExperts(l.w13, s.quant_up, cfg.topk, s.gu, rows, 4);

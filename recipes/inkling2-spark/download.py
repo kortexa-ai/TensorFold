@@ -43,6 +43,8 @@ def prepare_metadata(root):
                                     "codebook": "mul1", "version": "1.6.0"}
     config["text_config"].pop("quantization_config", None)
     config["text_config"]["max_position_embeddings"] = 1048576
+    # This text profile stops before the assistant message boundary enters the reply.
+    config["eos_token_id"] = [200006, 200010]
     write(root / "config.json", (json.dumps(config, indent=2) + "\n").encode())
     for name in ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"):
         write(root / name, (root / "auxiliary" / name).read_bytes())
