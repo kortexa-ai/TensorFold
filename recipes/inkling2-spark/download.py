@@ -16,6 +16,11 @@ MANIFEST_SHA256 = "97d75d66d3883514450772f8a3efb348467d35157925c908ea97315ae6e3f
 URL = f"https://huggingface.co/{REPOSITORY}/resolve/{REVISION}/"
 ASSETS = ("config.json", "hf_quant_config.json", "tokenizer.json", "tokenizer_config.json",
           "special_tokens_map.json", "chat_template.jinja")
+# The published license files sit outside the tensor manifest; pin their exact bytes as well.
+LICENSES = {
+    "LICENSE": {"bytes": 11346, "sha256": "1495e1e757ef4d0925a2350563cf5754bb23c51701a8ec4fb3c5cdcbedae6747"},
+    "NOTICE": {"bytes": 325, "sha256": "e71ff351f806c4f6ebd25f3c4ba9840ecd47283dc5ffcbd97829c59268369a47"},
+}
 
 
 def digest(path):
@@ -89,7 +94,7 @@ def main():
         if digest(meta) != MANIFEST_SHA256:
             raise ValueError("Existing checkpoint manifest differs from the pinned pack")
         checkpoint = json.loads(meta.read_text())
-        files = {"dense/global.safetensors", *(f"auxiliary/{n}" for n in ASSETS)}
+        files = {"dense/global.safetensors", *(f"auxiliary/{n}" for n in ASSETS), *LICENSES}
         for index in range(48):
             files.add(f"dense/layer-{index:02}.safetensors")
             for batch in checkpoint["layers"][str(index)]["batches"]:
@@ -100,7 +105,7 @@ def main():
             if name.startswith("/") or ".." in Path(name).parts or "\\" in name:
                 raise ValueError("Unsafe manifest path")
             target = root / name
-            info = checkpoint["files"][name]
+            info = LICENSES.get(name) or checkpoint["files"][name]
             sha, size = info["sha256"], info["bytes"]
             if target.exists():
                 if target.stat().st_size != size or digest(target) != sha:

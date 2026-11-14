@@ -1,0 +1,51 @@
+{
+  "status": "passed",
+  "native_source_revision": "aa7b7c9998131da29569f002727f9b51195f3548",
+  "hardware": "2x NVIDIA DGX Spark GB10, 128GB each, direct ConnectX RoCE",
+  "weights_revision": "05c6cd0dff9df5bf20b10419c663a1e2adc7eb64",
+  "quantization": "unchanged published mixed K2/K3 EXL3, checkpoint activation rounding",
+  "kv_cache": "exact BF16",
+  "context_allocated": 524288,
+  "long_context_quality_qualified": false,
+  "cache_reuse": false,
+  "greedy": true,
+  "parallel": 1,
+  "retrieval": {
+    "prompt_tokens": 8128,
+    "text": "orchid, 47, nebula, 42",
+    "ttft_seconds": 19.082600963069126,
+    "total_seconds": 20.081574853975326,
+    "input_tokens_per_second": 425.93774379762243,
+    "decode_tokens_per_second": 10.010271630751724,
+    "prompt_sha256": "7fe1ef52180657318dc8d1cceabc33aeedac0455d1de40113866e2ad15a29250"
+  },
+  "generation": {
+    "prompt_tokens": 33,
+    "completion_tokens": 256,
+    "ttft_seconds": 0.2583435080014169,
+    "decode_tokens_per_second": 14.934595246460411
+  },
+  "previous_pipeline": {
+    "kv_cache": "scaled FP8 E4M3",
+    "input_tokens_per_second": 19.84791812934603,
+    "decode_tokens_per_second": 1.2501114158805988,
+    "prefill_seconds": 409.51398262684233,
+    "total_seconds": 418.3131983289495
+  },
+  "limits": [
+    "single synthetic 8K retrieval and 256-token prose generation; not a broad quality suite",
+    "512K allocated with short requests, not full 512K prefill or retrieval",
+    "native initial text profile only; upstream kernel-contract qualification incomplete",
+    "different cache precision and stop handling from the previous pipeline; not an isolated kernel comparison"
+  ],
+  "native_image_id": "sha256:ac6a47c27fb5037e807eeb1fbfbf5193375d4f19e4a89fe51631591db221032a",
+  "native_binary_sha256": "f01b68ecfafae0e799798fc1e156107cb8a801b4cfe5a62f9a11dbd2285ab5fe",
+  "public_source_builds": 2,
+  "sampling_refusal_http_status": 400,
+  "minimum_host_available_gib": 8.561283111572266,
+  "toolchain": {
+    "zig": "0.17.0",
+    "cuda": "13.0.2",
+    "sm": 121
+  }
+}

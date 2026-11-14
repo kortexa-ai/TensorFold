@@ -80,12 +80,25 @@ interrupt to each launcher or `docker stop tensorfold-inkling2-rank0` and
 `docker stop tensorfold-inkling2-rank1` on their respective hosts. A broken peer
 ends the native process. Stop the pair before starting another distributed model.
 
+## Measured performance and limits
+
+The full native model passed an 8128-token retrieval test, returning
+`orchid, 47, nebula, 42` in 20.08 seconds. It measured 425.9 input tokens/s and
+10.01 decode tokens/s on that request. A separate 256-token prose generation
+measured 14.93 decode tokens/s. See [measurements and comparison](measurements.md)
+for the exact workload, precision, source revision and limits.
+
+The 512K BF16 cache was allocated during the trial. Full 512K prefill speed and
+retrieval quality have not been qualified. The profile remains experimental;
+the complete upstream GPU contract and a broad quality suite are not qualified.
+
 ## Development evidence
 
 The first bounded RTX PRO 6000 test loaded one complete real layer and matched
 the pinned PyTorch/ExLlamaV3 reference's top token. Its final FP32 logit relative
 L2 error was 2.65e-5. Activation quantization, capped SwiGLU, routing, and static
 and dynamic convolutions matched the reference in initial operator probes.
-These development checks do not establish whole-model or upstream kernel-contract
-qualification. Full-model quality, two-host stability, and speed need measured
-receipts before treating this profile as production ready.
+These development checks do not establish general model fidelity or complete
+upstream kernel-contract qualification. A separate 256-row layer diagnostic
+also matched top1, with logit relative L2 .001076 and MLP relative L2 .0569;
+those larger-row numerical differences remain diagnostic evidence.
