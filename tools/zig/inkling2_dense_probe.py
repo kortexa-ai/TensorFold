@@ -28,8 +28,9 @@ SHAPES = (
 )
 
 
-def stored(root, role, suffix, n, k):
-    layer = 5 if role == "dynamic" else 0
+def stored(root, role, suffix, n, k, layer=None):
+    if layer is None:
+        layer = 5 if role == "dynamic" else 0
     filename = "global.safetensors" if role == "head" else f"layer-{layer:02}.safetensors"
     key = suffix if role == "head" else f"model.llm.layers.{layer}.{suffix}"
     with (root / "dense" / filename).open("rb") as f:
