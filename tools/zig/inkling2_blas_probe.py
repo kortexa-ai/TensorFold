@@ -44,9 +44,7 @@ class Linear:
         self.workspace = workspace
         self.alpha, self.beta = C.c_float(1), C.c_float(0)
         self.baseline = self.heuristics(1)[0]
-        self.plans = self.heuristics(16)
-        if bytes(self.baseline.algo) != bytes(self.plans[0].algo):
-            raise RuntimeError("Asking for more heuristics changed the baseline plan")
+        self.plans = [self.baseline, *self.heuristics(16)]
 
     def call(self, name, *args):
         status = getattr(self.lib, "cublasLt" + name)(*args)
