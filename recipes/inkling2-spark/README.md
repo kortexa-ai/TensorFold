@@ -82,11 +82,14 @@ ends the native process. Stop the pair before starting another distributed model
 
 ## Measured performance and limits
 
-The full native model passed an 8128-token retrieval test, returning
-`orchid, 47, nebula, 42` in 20.08 seconds. It measured 425.9 input tokens/s and
-10.01 decode tokens/s on that request. A separate 256-token prose generation
-measured 14.93 decode tokens/s. See [measurements and comparison](measurements.md)
-for the exact workload, precision, source revision and limits.
+The one-row SM121 attention path measures 15.00 decode tokens/s on a short prose
+prompt, 10.95 at 8K and 7.17 at 32K. Paired A-B-B-A comparisons show +10.5% at
+8K and +18.7% at 32K, with identical full output tokens. Prefill stays within
+0.3% of the original on those longer prompts. See the
+[attention measurements and reproduction steps](attention.md).
+
+The earlier [native-versus-pipeline comparison](measurements.md) records the
+initial 8128-token retrieval result and the first native implementation.
 
 The 512K BF16 cache was allocated during the trial. Full 512K prefill speed and
 retrieval quality have not been qualified. The profile remains experimental;
