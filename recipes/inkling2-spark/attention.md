@@ -52,7 +52,8 @@ These synthetic checks establish operator behavior, not model quality at 512K.
 
 An additional 37-case RTX PRO 6000 probe is byte-identical to the original.
 With cold buffers, its isolated 32K kernel time falls from 8.947 to 6.159 ms.
-All 36 original functions retain identical SASS across SM120/121. An initial
+All 36 existing functions in the affected CUDA image retain identical SASS
+across SM120/121. An initial
 variant that changed query-row indexing and the split grid axis was slower;
 retaining the original row scheduling and using grid Z produced the measured
 winner. This does not isolate a single compiler mechanism as the cause.
