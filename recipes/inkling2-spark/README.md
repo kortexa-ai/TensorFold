@@ -82,11 +82,12 @@ ends the native process. Stop the pair before starting another distributed model
 
 ## Measured performance and limits
 
-The one-row SM121 attention path measures 15.00 decode tokens/s on a short prose
-prompt, 10.95 at 8K and 7.17 at 32K. Paired A-B-B-A comparisons show +10.5% at
-8K and +18.7% at 32K, with identical full output tokens. Prefill stays within
-0.3% of the original on those longer prompts. See the
-[attention measurements and reproduction steps](attention.md).
+The SM121 dense and attention paths measure 16.52 decode tokens/s on short
+prose, 11.75 at 8K and 7.49 at 32K. The dense A-B-B-A comparison adds 10.4%
+short, 7.7% at 8K and 4.8% at 32K over the preceding attention profile, with
+identical full output tokens and prefill within 1%. See the
+[dense measurements and fixed runtime guard](dense.md) and the preceding
+[attention measurements](attention.md).
 
 The earlier [native-versus-pipeline comparison](measurements.md) records the
 initial 8128-token retrieval result and the first native implementation.

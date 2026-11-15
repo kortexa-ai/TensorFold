@@ -1,4 +1,4 @@
-// Diagnostic FP32-output variant of this tree's Drama staged GEMV; not qualified for serving.
+// FP32-output variant of this tree's Drama staged GEMV, with the same strided FMA chains and halving tree.
 #include <cuda_bf16.h>
 #include <stdint.h>
 

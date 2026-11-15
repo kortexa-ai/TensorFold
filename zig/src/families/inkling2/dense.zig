@@ -1,4 +1,4 @@
-//! Candidate one-row GB10 projections with cuBLASLt's summation order and original output precision.
+//! One-row GB10 projections with cuBLASLt's summation order and original output precision.
 const std = @import("std");
 const cuda = @import("cuda");
 
