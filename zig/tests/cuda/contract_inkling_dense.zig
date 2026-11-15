@@ -50,8 +50,10 @@ const Case = struct {
     }
     const vt = g.hooks(Case);
     fn deinit(self: *Case) void {
+        self.rig.s.synchronize() catch {};
         if (self.plan) |*p| p.deinit();
-        for (.{ &self.x, &self.w }) |a| a.deinit(self.rig.gpu.gpa);
+        self.x.deinit(self.rig.gpu.gpa);
+        self.w.deinit(self.rig.gpu.gpa);
         self.terms.deinit(self.rig.gpu.gpa);
         self.rig.deinit();
     }
@@ -60,6 +62,7 @@ const Case = struct {
     pub fn prepare(self: *Case, shape: c.Shape, fill: g.Fill, seed: u64) !bool {
         const qualified = served[@backingInt(self.form)][0];
         if (shape.rows < 1 or shape.rows > 8 or shape.n != qualified.n or shape.k != qualified.k) return false;
+        try self.rig.s.synchronize();
         if (self.plan) |*p| p.deinit();
         self.plan = null;
         self.rig.reset();
