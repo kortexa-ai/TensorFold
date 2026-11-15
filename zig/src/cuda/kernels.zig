@@ -62,6 +62,7 @@ pub const qwen35_draft: []const u8 = if (available) &Blob("fatbin_qwen35_draft")
 pub const qwen35_keep: []const u8 = if (available) &Blob("fatbin_qwen35_keep").bytes else &.{};
 pub const inkling2: []const u8 = if (available) &Blob("fatbin_inkling2").bytes else &.{};
 pub const inkling2_dense: []const u8 = if (available) &Blob("fatbin_inkling2_dense").bytes else &.{};
+pub const inkling2_gqa: []const u8 = if (available) &Blob("fatbin_inkling2_gqa").bytes else &.{};
 pub const joint_schema: []const u8 = if (available) &Blob("fatbin_joint_schema").bytes else &.{};
 pub const qwen_vision: []const u8 = if (available) &Blob("fatbin_qwen_vision").bytes else &.{};
 pub const qwen35_kv8: []const u8 = if (available) &Blob("fatbin_qwen35_kv8").bytes else &.{};

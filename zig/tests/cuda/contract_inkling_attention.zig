@@ -38,6 +38,8 @@ fn depth(s: c.Shape) usize {
 const Case = struct {
     rig: rig_.Rig,
     form: Form,
+    group: u32 = 1,
+    splits: u32 = 4,
     candidate: cuda.Function,
     baseline: cuda.Function,
     shape: c.Shape = .{ .rows = 0, .n = 0, .k = 0 },
@@ -49,7 +51,9 @@ const Case = struct {
     msg: [200]u8 = undefined,
 
     fn kernel(self: *Case) g.Kernel {
-        const name = if (self.form.control) "control inkling attention missing one output partition" else if (self.form.hidden) "cuda inkling decode attention hidden masked V" else if (self.form.local) "cuda inkling decode attention local ring" else "cuda inkling decode attention global";
+        const original = if (self.form.control) "control inkling attention missing one output partition" else if (self.form.hidden) "cuda inkling decode attention hidden masked V" else if (self.form.local) "cuda inkling decode attention local ring" else "cuda inkling decode attention global";
+        const kind = if (self.form.control) "control missing partition" else if (self.form.hidden) "hidden V" else if (self.form.local) "local ring" else "global";
+        const name = if (self.group == 1) original else std.fmt.bufPrint(&self.msg, "cuda inkling gqa G{d} S{d} {s}", .{ self.group, self.splits, kind }) catch unreachable;
         return .{ .spec = .{ .name = name, .accum = .f32, .depth = depth, .out = .bf16, .ops = 16, .served = &served, .replaces = "tf_ik_attention on identical one-query inputs", .tiles = .{ .{ .size = 1 }, .{ .size = 24, .step = 6, .min = 6 }, .{ .size = 64 } }, .nan = .{ .stated = "visible V exceptions follow Inkling's original rule; masked values are excluded" } }, .ctx = self, .vt = &vt, .control = if (self.form.control) .shapes else null };
     }
     const vt = g.hooks(Case);
@@ -142,7 +146,7 @@ const Case = struct {
         for (self.params.items) |p| {
             var a: cuda.Args = .{};
             a.add(p);
-            try cuda.launch.launch(self.candidate, .{ .grid = .{ .x = 1, .y = @intCast(p.hq), .z = if (self.form.control) 3 else 4 }, .block = .{ .x = 128 } }, self.rig.s, &a);
+            try cuda.launch.launch(self.candidate, .{ .grid = .{ .x = 1, .y = @intCast(@divExact(p.hq, @as(i32, @intCast(self.group)))), .z = self.splits - @intFromBool(self.form.control) }, .block = .{ .x = 128 } }, self.rig.s, &a);
         }
     }
 
@@ -274,6 +278,47 @@ pub const Set = struct {
 
     pub fn deinit(set: *Set) void {
         for (&set.cases) |*x| x.deinit();
+        set.module.unload();
+        set.gpu.gpa.destroy(set);
+    }
+};
+
+pub const GqaSet = struct {
+    gpu: check_.Gpu,
+    module: cuda.Module,
+    baseline_module: cuda.Module,
+    cases: [16]Case,
+
+    pub fn init(gpu: check_.Gpu, stream: cuda.Stream, a: std.mem.Allocator, list: *std.ArrayList(g.Kernel)) !?*GqaSet {
+        if (try gpu.ctx.capability() < 120) return null;
+        const set = try a.create(GqaSet);
+        errdefer a.destroy(set);
+        var module = try cuda.Module.load(gpu.d, cuda.kernels.inkling2_gqa);
+        errdefer module.unload();
+        var baseline_module = try cuda.Module.load(gpu.d, cuda.kernels.inkling2);
+        errdefer baseline_module.unload();
+        const baseline = try baseline_module.function("tf_ik_attention");
+        set.* = .{ .gpu = gpu, .module = module, .baseline_module = baseline_module, .cases = undefined };
+        const variants = .{ .{ 2, 4, "tf_ik_gqa_2_4" }, .{ 2, 8, "tf_ik_gqa_2_8" }, .{ 3, 8, "tf_ik_gqa_3_8" }, .{ 6, 16, "tf_ik_gqa_6_16" } };
+        inline for (variants, 0..) |v, index| {
+            const candidate = try module.function(v[2]);
+            for (forms, 0..) |form, fi| set.cases[index * forms.len + fi] = .{
+                .rig = .{ .gpu = gpu, .s = stream },
+                .form = form,
+                .group = v[0],
+                .splits = v[1],
+                .candidate = candidate,
+                .baseline = baseline,
+            };
+        }
+        errdefer for (&set.cases) |*x| x.deinit();
+        for (&set.cases) |*x| try list.append(a, x.kernel());
+        return set;
+    }
+
+    pub fn deinit(set: *GqaSet) void {
+        for (&set.cases) |*x| x.deinit();
+        set.baseline_module.unload();
         set.module.unload();
         set.gpu.gpa.destroy(set);
     }
