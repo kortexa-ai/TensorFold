@@ -22,6 +22,8 @@ pub const Forward = struct {
     plans: std.ArrayList(Plan) = .empty,
     exchange: ?Exchange = null,
     decode_reported: bool = false,
+    dense_reported: bool = false,
+    blas_version: usize = 0,
 
     pub fn deinit(f: *Forward) void {
         for (f.plans.items) |*p| p.plan.deinit();
@@ -29,6 +31,16 @@ pub const Forward = struct {
     }
 
     fn product(f: *Forward, l: wt.Linear, x: u64, out: u64, rows: usize, kind: cuda.cublaslt.DataType) !void {
+        if (f.k.dense) |*dense| {
+            if (f.blas_version == 0) f.blas_version = f.lt.api.cublasLtGetVersion();
+            if (@import("dense.zig").serves(121, f.blas_version, rows, l.n, l.k, kind)) {
+                if (!f.dense_reported) {
+                    std.log.info("inkling dense: staged BF16 Q/gate and FP32 O/head, SM121 cuBLASLt 130101", .{});
+                    f.dense_reported = true;
+                }
+                return dense.run(f.stream, x, l.ptr, out, l.n, l.k, kind);
+            }
+        }
         for (f.plans.items) |*p| if (p.rows == rows and p.k == l.k and p.n == l.n and p.out == kind)
             return p.plan.run(x, l.ptr, out, f.s.workspace, 64 << 20, f.stream.handle);
         var p = try cuda.cublaslt.Linear.init(f.lt, rows, l.n, l.k, kind, 64 << 20);

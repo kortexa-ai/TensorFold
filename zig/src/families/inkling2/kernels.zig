@@ -65,6 +65,7 @@ pub const Kernels = struct {
     x3: cuda.exl3_experts.Experts,
     functions: std.EnumArray(Op, cuda.Function),
     split_decode: bool,
+    dense: ?@import("dense.zig").Dense,
 
     pub fn load(d: *const cuda.Driver) !Kernels {
         if (!cuda.kernels.available) return error.BuiltWithoutKernels;
@@ -79,10 +80,11 @@ pub const Kernels = struct {
             const symbol = comptime "tf_ik_" ++ @tagName(op);
             functions.set(op, try mod.function(symbol));
         }
-        return .{ .mod = mod, .experts_mod = experts, .plan = try cuda.grouped.Router.resolve(experts), .x3 = x3, .functions = functions, .split_decode = (try d.currentCapability()) == 121 };
+        return .{ .mod = mod, .experts_mod = experts, .plan = try cuda.grouped.Router.resolve(experts), .x3 = x3, .functions = functions, .split_decode = (try d.currentCapability()) == 121, .dense = try @import("dense.zig").Dense.load(d) };
     }
 
     pub fn deinit(k: *Kernels) void {
+        if (k.dense) |*dense| dense.deinit();
         k.x3.unload();
         k.experts_mod.unload();
         k.mod.unload();
