@@ -45,8 +45,8 @@ def main():
     if torch.cuda.get_device_capability() != (12, 1):
         raise RuntimeError("This experiment is restricted to an idle GB10")
     torch.backends.cuda.matmul.allow_tf32 = False
-    driver = Driver(args.fatbin)
     workspace = torch.empty(64 * 1024**2, device="cuda", dtype=torch.uint8)
+    driver = Driver(args.fatbin)
     plan = Linear(1, 3072, 4608, 14, workspace)
     records = []
     try:
