@@ -118,7 +118,7 @@ def check_candidate(run, baseline, x, w, out, xstore, wstore, ystore, y):
             "baseline_fp64": accuracy(want, oracle), "candidate_fp64": accuracy(y, oracle)}
 
 
-def run_shape(spec, args, driver, workspace, scrub, records):
+def run_shape(spec, args, driver, workspace, scrub, records, f32_driver=None):
     role, n, k, kind, suffix = spec
     dtype = torch.bfloat16 if kind == "bf16" else torch.float32
     xstore, x = guarded((1, k), torch.bfloat16)
@@ -132,6 +132,9 @@ def run_shape(spec, args, driver, workspace, scrub, records):
     candidates = {f"blas-{i}": blas(h) for i, h in enumerate(plan.plans)}
     if kind == "bf16" and n % 8 == 0 and k % 256 == 0:
         candidates["staged"] = lambda a, b, c: driver.launch("drama3_staged_gemv", (n // 8,), 32, a, b, c, k)
+    if kind == "f32" and f32_driver is not None and n % 8 == 0 and k % 256 == 0:
+        candidates["staged-f32"] = lambda a, b, c: f32_driver.launch("tf_ik_dense_gemv_f32", (n // 8,), 32,
+                                                                  a, b, c, k)
     baseline = blas(plan.baseline)
     record = {"role": role, "shape": [1, n, k], "output": kind, "cublaslt_version": plan.version,
               "plans": [{"name": f"blas-{i}", "algorithm_hex": bytes(h.algo).hex(),
@@ -180,6 +183,7 @@ def main():
     p.add_argument("--model", type=Path, required=True)
     p.add_argument("--fatbin", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--f32-fatbin", type=Path)
     p.add_argument("--rounds", type=int, default=9)
     p.add_argument("--only", choices=[s[0] for s in SHAPES])
     args = p.parse_args()
@@ -195,14 +199,17 @@ def main():
     workspace = torch.empty(64 * 1024**2, device="cuda", dtype=torch.uint8)
     scrub = torch.zeros(64 * 1024**2, device="cuda", dtype=torch.uint8)
     driver, records = Driver(args.fatbin), []
+    f32_driver = Driver(args.f32_fatbin) if args.f32_fatbin else None
     metadata = {"torch": torch.__version__, "gpu": torch.cuda.get_device_name(),
                 "capability": list(torch.cuda.get_device_capability()), "memory_fraction": .12,
                 "fatbin_sha256": hashlib.sha256(args.fatbin.read_bytes()).hexdigest(), "started": time.time()}
+    if args.f32_fatbin:
+        metadata["f32_fatbin_sha256"] = hashlib.sha256(args.f32_fatbin.read_bytes()).hexdigest()
     args.output.with_suffix(".metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     with torch.inference_mode():
         for spec in SHAPES:
             if args.only is None or spec[0] == args.only:
-                run_shape(spec, args, driver, workspace, scrub, records)
+                run_shape(spec, args, driver, workspace, scrub, records, f32_driver)
                 torch.cuda.empty_cache()
 
 
