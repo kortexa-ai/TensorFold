@@ -5,5 +5,6 @@
 #include "inkling2_conv.cuh"
 #include "inkling2_heads.cuh"
 #include "inkling2_attention.cuh"
+#include "inkling2_attention_decode.cuh"
 #include "inkling2_exl3.cuh"
 #include "inkling2_rows.cuh"

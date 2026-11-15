@@ -2,7 +2,7 @@
 const std = @import("std");
 const cuda = @import("cuda");
 
-pub const Op = enum { mix, finish, rank_sum, logits, quant, swiglu, route, moe_sum, conv, conv_commit, prep, relative, attention, rotate, unrotate, embed, norm, top1 };
+pub const Op = enum { mix, finish, rank_sum, logits, quant, swiglu, route, moe_sum, conv, conv_commit, prep, relative, attention, attention_decode, rotate, unrotate, embed, norm, top1 };
 
 pub const Mix = extern struct {
     partial: u64,
@@ -64,6 +64,7 @@ pub const Kernels = struct {
     plan: cuda.grouped.Router,
     x3: cuda.exl3_experts.Experts,
     functions: std.EnumArray(Op, cuda.Function),
+    split_decode: bool,
 
     pub fn load(d: *const cuda.Driver) !Kernels {
         if (!cuda.kernels.available) return error.BuiltWithoutKernels;
@@ -78,7 +79,7 @@ pub const Kernels = struct {
             const symbol = comptime "tf_ik_" ++ @tagName(op);
             functions.set(op, try mod.function(symbol));
         }
-        return .{ .mod = mod, .experts_mod = experts, .plan = try cuda.grouped.Router.resolve(experts), .x3 = x3, .functions = functions };
+        return .{ .mod = mod, .experts_mod = experts, .plan = try cuda.grouped.Router.resolve(experts), .x3 = x3, .functions = functions, .split_decode = (try d.currentCapability()) == 121 };
     }
 
     pub fn deinit(k: *Kernels) void {

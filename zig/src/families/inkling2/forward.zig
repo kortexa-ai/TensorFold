@@ -21,6 +21,7 @@ pub const Forward = struct {
     lt: *const cuda.cublaslt.Library,
     plans: std.ArrayList(Plan) = .empty,
     exchange: ?Exchange = null,
+    decode_reported: bool = false,
 
     pub fn deinit(f: *Forward) void {
         for (f.plans.items) |*p| p.plan.deinit();
@@ -92,7 +93,14 @@ pub const Forward = struct {
         try f.k.go(.prep, stream, .{ .x = @intCast(keys), .y = @intCast(rows) }, 128, .{ s.v, @as(u64, 0), s.v, cache.v, int(keys), @as(i32, 128), int(s.pos), int(cache.capacity), @as(i32, 2), @as(i32, 0) });
         try f.k.go(.prep, stream, .{ .x = @intCast(heads), .y = @intCast(rows) }, 128, .{ s.r, l.r_scale, s.r, @as(u64, 0), int(heads), @as(i32, 16), int(s.pos), int(cache.capacity), @as(i32, 3), @as(i32, @intFromBool(!local)) });
         try f.k.go(.relative, stream, .{ .x = 8, .y = @intCast(rows * heads) }, 128, .{ s.r, l.relative, s.relative, int(heads) });
-        try f.k.go(.attention, stream, .{ .x = ceil(rows, 16), .y = @intCast(heads) }, 128, .{kern.Attention{ .q = s.q, .k = cache.k, .v = cache.v, .relative = s.relative, .gate = s.gate, .sink = s.sink, .out = s.attn_heads, .rows = int(rows), .pos = int(s.pos), .hq = int(heads), .hk = int(keys), .capacity = int(cache.capacity), .window = if (local) 1023 else 0 }});
+        const attention: kern.Attention = .{ .q = s.q, .k = cache.k, .v = cache.v, .relative = s.relative, .gate = s.gate, .sink = s.sink, .out = s.attn_heads, .rows = int(rows), .pos = int(s.pos), .hq = int(heads), .hk = int(keys), .capacity = int(cache.capacity), .window = if (local) 1023 else 0 };
+        if (rows == 1 and f.k.split_decode) {
+            try f.k.go(.attention_decode, stream, .{ .x = 1, .y = @intCast(heads), .z = 4 }, 128, .{attention});
+            if (!f.decode_reported) {
+                std.log.info("inkling attention decode: tf_ik_attention_decode, 4 output partitions per head", .{});
+                f.decode_reported = true;
+            }
+        } else try f.k.go(.attention, stream, .{ .x = ceil(rows, 16), .y = @intCast(heads) }, 128, .{attention});
         const part_bytes = rows * h * 4;
         const mine = s.parts + share.rank * part_bytes;
         try f.product(l.o, s.attn_heads, mine, rows, .f32);
