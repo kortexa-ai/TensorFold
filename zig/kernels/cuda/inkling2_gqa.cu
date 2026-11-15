@@ -51,7 +51,7 @@ __device__ inline void ik_gqa_exception(InklingAttention a, int r0, int head) {
     }
 }
 
-template <int GROUP, int SPLITS>
+template <int GROUP, int SPLITS, bool TILE_ADDRESS = false>
 __device__ __forceinline__ void ik_gqa_attention(InklingAttention a) {
     constexpr int D = 128, NK = 64;
     if (blockIdx.z >= SPLITS) return;
@@ -82,10 +82,14 @@ __device__ __forceinline__ void ik_gqa_attention(InklingAttention a) {
     if (t < 16) { maxima[t] = -INFINITY; totals[t] = 0.f; }
     __syncthreads();
     for (int base = first / NK * NK; base <= last; base += NK) {
+        const int tile_slot = TILE_ADDRESS ? base % a.capacity : 0;
         bool exceptional = false;
         for (int i = t; i < NK * D; i += 128) {
             const int key = base + i / D, c = i % D;
-            const size_t offset = ((size_t)(key % a.capacity) * a.hk + kh) * D + c;
+            const int unwrapped = tile_slot + i / D;
+            const int slot = TILE_ADDRESS && a.capacity >= NK ?
+                (unwrapped >= a.capacity ? unwrapped - a.capacity : unwrapped) : key % a.capacity;
+            const size_t offset = ((size_t)slot * a.hk + kh) * D + c;
             const bf16 k = key <= last ? a.k[offset] : b(0.f);
             const bf16 v = key <= last ? a.v[offset] : b(0.f);
             keys[i / D][c] = k;
@@ -178,3 +182,5 @@ extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_2_4(InklingAttention
 extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_2_8(InklingAttention a) { ik_gqa_attention<2, 8>(a); }
 extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_3_8(InklingAttention a) { ik_gqa_attention<3, 8>(a); }
 extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_6_16(InklingAttention a) { ik_gqa_attention<6, 16>(a); }
+extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_address_1_4(InklingAttention a) { ik_gqa_attention<1, 4, true>(a); }
+extern "C" __global__ __launch_bounds__(128) void tf_ik_gqa_address_3_8(InklingAttention a) { ik_gqa_attention<3, 8, true>(a); }

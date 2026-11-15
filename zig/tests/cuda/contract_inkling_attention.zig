@@ -38,6 +38,8 @@ fn depth(s: c.Shape) usize {
 const Case = struct {
     rig: rig_.Rig,
     form: Form,
+    gqa: bool = false,
+    address: bool = false,
     group: u32 = 1,
     splits: u32 = 4,
     candidate: cuda.Function,
@@ -53,7 +55,7 @@ const Case = struct {
     fn kernel(self: *Case) g.Kernel {
         const original = if (self.form.control) "control inkling attention missing one output partition" else if (self.form.hidden) "cuda inkling decode attention hidden masked V" else if (self.form.local) "cuda inkling decode attention local ring" else "cuda inkling decode attention global";
         const kind = if (self.form.control) "control missing partition" else if (self.form.hidden) "hidden V" else if (self.form.local) "local ring" else "global";
-        const name = if (self.group == 1) original else std.fmt.bufPrint(&self.msg, "cuda inkling gqa G{d} S{d} {s}", .{ self.group, self.splits, kind }) catch unreachable;
+        const name = if (!self.gqa) original else std.fmt.bufPrint(&self.msg, "cuda inkling gqa G{d} S{d} {s} {s}", .{ self.group, self.splits, if (self.address) "tile address" else "original address", kind }) catch unreachable;
         return .{ .spec = .{ .name = name, .accum = .f32, .depth = depth, .out = .bf16, .ops = 16, .served = &served, .replaces = "tf_ik_attention on identical one-query inputs", .tiles = .{ .{ .size = 1 }, .{ .size = 24, .step = 6, .min = 6 }, .{ .size = 64 } }, .nan = .{ .stated = "visible V exceptions follow Inkling's original rule; masked values are excluded" } }, .ctx = self, .vt = &vt, .control = if (self.form.control) .shapes else null };
     }
     const vt = g.hooks(Case);
@@ -287,7 +289,7 @@ pub const GqaSet = struct {
     gpu: check_.Gpu,
     module: cuda.Module,
     baseline_module: cuda.Module,
-    cases: [16]Case,
+    cases: [24]Case,
 
     pub fn init(gpu: check_.Gpu, stream: cuda.Stream, a: std.mem.Allocator, list: *std.ArrayList(g.Kernel)) !?*GqaSet {
         if (try gpu.ctx.capability() < 120) return null;
@@ -299,12 +301,14 @@ pub const GqaSet = struct {
         errdefer baseline_module.unload();
         const baseline = try baseline_module.function("tf_ik_attention");
         set.* = .{ .gpu = gpu, .module = module, .baseline_module = baseline_module, .cases = undefined };
-        const variants = .{ .{ 2, 4, "tf_ik_gqa_2_4" }, .{ 2, 8, "tf_ik_gqa_2_8" }, .{ 3, 8, "tf_ik_gqa_3_8" }, .{ 6, 16, "tf_ik_gqa_6_16" } };
+        const variants = .{ .{ 2, 4, "tf_ik_gqa_2_4", false }, .{ 2, 8, "tf_ik_gqa_2_8", false }, .{ 3, 8, "tf_ik_gqa_3_8", false }, .{ 6, 16, "tf_ik_gqa_6_16", false }, .{ 1, 4, "tf_ik_gqa_address_1_4", true }, .{ 3, 8, "tf_ik_gqa_address_3_8", true } };
         inline for (variants, 0..) |v, index| {
             const candidate = try module.function(v[2]);
             for (forms, 0..) |form, fi| set.cases[index * forms.len + fi] = .{
                 .rig = .{ .gpu = gpu, .s = stream },
                 .form = form,
+                .gqa = true,
+                .address = v[3],
                 .group = v[0],
                 .splits = v[1],
                 .candidate = candidate,

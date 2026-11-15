@@ -12,7 +12,8 @@ import torch
 from inkling2_probe import Attention, Driver
 
 
-VARIANTS = ((2, 4), (2, 8), (3, 8), (6, 16))
+VARIANTS = tuple((g, s, f"tf_ik_gqa_{g}_{s}") for g, s in ((2, 4), (2, 8), (3, 8), (6, 16))) + (
+    (1, 4, "tf_ik_gqa_address_1_4"), (3, 8, "tf_ik_gqa_address_3_8"))
 
 
 def equal(a, b):
@@ -60,11 +61,11 @@ def check(baseline, candidate, pos, window, pattern):
     torch.cuda.synchronize()
     want = arrays[-1].clone()
     result = {"position": pos, "window": window, "pattern": pattern, "variants": {}}
-    for group, splits in VARIANTS:
+    for group, splits, symbol in VARIANTS:
         different, stable, previous = [], True, None
         for _ in range(5):
             arrays[-1].fill_(123)
-            launch(candidate, f"tf_ik_gqa_{group}_{splits}", group, splits, arrays, pos, window, capacity)
+            launch(candidate, symbol, group, splits, arrays, pos, window, capacity)
             torch.cuda.synchronize()
             got = arrays[-1]
             # NaN payload is not portable; preserve classes and all finite output bytes.
@@ -80,7 +81,7 @@ def check(baseline, candidate, pos, window, pattern):
         inputs = all(equal(a, b) for a, b in zip(arrays[:-1], saved))
         record = {"different": different, "repeat_identical": stable, "guards_intact": intact,
                   "input_unchanged": inputs}
-        result["variants"][f"g{group}s{splits}"] = record
+        result["variants"][symbol] = record
         if any(different) or not stable or not intact or not inputs:
             raise AssertionError(result)
     return result
@@ -92,7 +93,7 @@ def timing(baseline, candidate, pos, window, rounds):
     copies = max(2, (64 * 1024**2 + kv_bytes - 1) // kv_bytes)
     buffers = [(arrays[1], arrays[2])] + [(arrays[1].clone(), arrays[2].clone()) for _ in range(copies - 1)]
     configs = [("baseline", baseline, "tf_ik_attention_decode", 1, 4)] + [
-        (f"g{g}s{s}", candidate, f"tf_ik_gqa_{g}_{s}", g, s) for g, s in VARIANTS]
+        (symbol, candidate, symbol, g, s) for g, s, symbol in VARIANTS]
     graphs, samples = {}, {name: [] for name, *_ in configs}
     scrub = torch.zeros(64 * 1024**2, dtype=torch.uint8, device="cuda")
     for name, driver, symbol, group, splits in configs:
