@@ -6,6 +6,11 @@ it first and the families still to do. The cross-family parts live in shared hel
 own hook on top of them. Update a cell in the same PR that changes it.
 How to approach a speed change, from bounding it to measuring it, is in [optimizing](optimizing.md).
 
+Fork experiment: Inkling CUDA query-head grouping and per-tile ring addressing
+are `failed` against their fixed 10% served decode bar. Grouping projects only
+2.89%/5.43% at 8K/32K; the address variants regress. Neither is selected.
+See the [experiment and raw samples](../recipes/inkling2-spark/gqa-experiment.md).
+
 Shared helpers that hold the cross-family parts:
 
 - `zig/src/core/kv_pool.zig`: the core KV page pool, its leases and promises. CUDA's plan for it is in

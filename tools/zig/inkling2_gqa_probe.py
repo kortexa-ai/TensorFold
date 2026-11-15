@@ -36,7 +36,7 @@ def fixture(pos, window, pattern="normal"):
     for tensor in arrays:
         tensor.copy_(torch.randn(tensor.shape, device="cuda") * .25)
     q, k, v, relative, gate, sink, out = arrays
-    if pattern == "cancel":
+    if pattern == "uniform":
         q.fill_(1)
         k.fill_(0)
         relative.zero_()
@@ -131,12 +131,13 @@ def main():
     if torch.cuda.get_device_capability() != (12, 1):
         raise ValueError("Only an idle GB10 is admitted")
     assert (torch.ones(256, device="cuda") + 1).sum().item() == 512
+    torch.manual_seed(1701)
     torch.backends.cuda.matmul.allow_tf32 = False
     baseline, candidate = Driver(a.baseline), Driver(a.candidate)
     record = {"baseline_sha256": hashlib.sha256(a.baseline.read_bytes()).hexdigest(),
               "candidate_sha256": hashlib.sha256(a.candidate.read_bytes()).hexdigest(),
               "torch": torch.__version__, "gpu": torch.cuda.get_device_name(), "memory_fraction": .12,
-              "started": time.time(), "checks": [], "timings": []}
+              "started": time.time(), "seed": 1701, "checks": [], "timings": []}
     try:
         shapes = [(31, 0)] if a.canary else [(0, 0), (63, 0), (64, 0), (1023, 0), (1024, 1023),
                                              (2049, 1023), (8191, 0), (32767, 0)]
@@ -144,7 +145,7 @@ def main():
             record["checks"].append(check(baseline, candidate, pos, window, "normal"))
             print(json.dumps({"checked": [pos, window, "normal"]}), flush=True)
         if not a.canary:
-            for pattern in ["cancel"] + [f"{f}/{v}" for f in ("query", "key", "value", "relative", "gate", "sink")
+            for pattern in ["uniform"] + [f"{f}/{v}" for f in ("query", "key", "value", "relative", "gate", "sink")
                                           for v in ("nan", "inf", "ninf", "subnormal")]:
                 record["checks"].append(check(baseline, candidate, 127, 0, pattern))
             for pos, window in ((2049, 1023), (8191, 0), (32767, 0), (131071, 0)):
