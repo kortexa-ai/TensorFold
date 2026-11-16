@@ -198,3 +198,30 @@ pub const Case = struct {
         }
     }
 };
+
+test "contract image: draft RMS class oracle propagates NaN and distinguishes infinite norms" {
+    const a = std.testing.allocator;
+    var t: Case = .{ .rig = .{ .gpu = .{ .gpa = a, .ctx = undefined, .d = undefined, .io = undefined }, .s = undefined }, .form = .layer, .function = undefined, .ends = .{ .a = a }, .shape = .{ .rows = 5, .n = 4608, .k = 4608 } };
+    defer t.x.deinit(a);
+    defer t.norm.deinit(a);
+    defer t.ends.deinit();
+    try t.x.resize(a, 5 * 4608);
+    try t.norm.resize(a, 4608);
+    @memset(t.x.items, c.toBf16(1));
+    @memset(t.norm.items, c.toBf16(1));
+    t.x.items[0] = c.toBf16(std.math.nan(f32));
+    t.x.items[4608] = c.toBf16(std.math.inf(f32));
+    t.x.items[2 * 4608] = c.toBf16(-std.math.inf(f32));
+    try t.ends.size(t.count());
+    const want = try a.alloc(f64, t.count());
+    defer a.free(want);
+    const magnitude = try a.alloc(f64, t.count());
+    defer a.free(magnitude);
+    try t.reference(want, magnitude);
+    for (want[0..4608]) |v| try std.testing.expect(std.math.isNan(v));
+    try std.testing.expect(std.math.isNan(want[4608]));
+    try std.testing.expect(std.math.isNan(want[2 * 4608]));
+    try std.testing.expectEqual(@as(f64, 0), want[4609]);
+    try std.testing.expectEqual(@as(f64, 0), want[2 * 4608 + 1]);
+    try std.testing.expectEqual(@as(f64, 1), want[3 * 4608]);
+}
