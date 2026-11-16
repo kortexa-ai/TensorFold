@@ -54,7 +54,7 @@ pub const Weights = struct {
         w.* = undefined;
     }
 
-    fn put(w: *Weights, data: []const u8) !u64 {
+    pub fn put(w: *Weights, data: []const u8) !u64 {
         const b = try cuda.DeviceBuffer.fromHost(w.d, data);
         errdefer {
             var owned = b;
@@ -66,7 +66,7 @@ pub const Weights = struct {
     }
 };
 
-fn get(f: *const File, name: []const u8, dtype: core.checkpoint.DType, shape: []const usize) !Tensor {
+pub fn get(f: *const File, name: []const u8, dtype: core.checkpoint.DType, shape: []const usize) !Tensor {
     const t = f.get(name) orelse return error.InklingMissingTensor;
     if (t.dtype != dtype or t.rank != shape.len or !std.mem.eql(usize, t.shape[0..t.rank], shape)) {
         std.log.err("inkling2: {s} is not {s}{any}", .{ name, @tagName(dtype), shape });
@@ -75,14 +75,14 @@ fn get(f: *const File, name: []const u8, dtype: core.checkpoint.DType, shape: []
     return t;
 }
 
-fn open(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, name: []const u8) !File {
+pub fn open(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, name: []const u8) !File {
     const path = try std.fs.path.join(gpa, &.{ dir, name });
     defer gpa.free(path);
     return File.open(gpa, io, path);
 }
 
 /// Cut a BF16 projection by output rows or input columns; the dense bytes themselves never change precision.
-fn linear(w: *Weights, f: *const File, name: []const u8, n: usize, k: usize, rows: [2]usize, cols: [2]usize) !Linear {
+pub fn linear(w: *Weights, f: *const File, name: []const u8, n: usize, k: usize, rows: [2]usize, cols: [2]usize) !Linear {
     const t = try get(f, name, .bf16, &.{ n, k });
     const nn = rows[1] - rows[0];
     const kk = cols[1] - cols[0];

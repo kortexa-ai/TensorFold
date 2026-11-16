@@ -11,12 +11,17 @@ pub const Backend = struct {
     active: ?*lanes.Stream = null,
     filling: usize = 0,
     token: u32 = 0,
+    held: [7]u32 = undefined,
+    held_n: usize = 0,
+    rounds: usize = 0,
+    verified: usize = 0,
+    committed: usize = 0,
 
     pub fn backend(b: *Backend) be.Backend {
         return .{ .ptr = b, .vtable = &vtable };
     }
-    pub fn facts() lanes.Model {
-        return .{ .exact_width = 1, .gpu_tokens = false, .mtp = false, .speculate = false, .hidden_rows = false, .batch_rows = 1, .max_streams = 1, .copy_drafts = false };
+    pub fn facts(drafting: bool) lanes.Model {
+        return .{ .exact_width = if (drafting) 8 else 1, .gpu_tokens = false, .mtp = drafting, .speculate = drafting, .speculate_early = false, .drafts = if (drafting) 7 else 0, .hidden_rows = false, .batch_rows = 1, .max_streams = 1, .copy_drafts = false };
     }
     const vtable: be.Backend.VTable = .{ .prefill = prefill, .prefill_step = step, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .release = release, .reports_fill = true };
     fn self(p: *anyopaque) *Backend {
@@ -32,6 +37,10 @@ pub const Backend = struct {
         try b.f.s.clear();
         b.active = s;
         b.filling = 0;
+        b.held_n = 0;
+        b.rounds = 0;
+        b.verified = 0;
+        b.committed = 0;
         s.cached = 0;
         if (s.reuse.saved != null) s.reuse_failed = true;
     }
@@ -78,19 +87,63 @@ pub const Backend = struct {
         return @intCast(value);
     }
     fn verify(p: *anyopaque, windows: []const be.Window, out: []be.Verified) anyerror!void {
-        if (windows.len != 1 or windows[0].rows() != 1 or windows[0].held != 0) return error.InklingNoDrafts;
+        const b = self(p);
+        if (windows.len != 1 or out.len != 1) return error.InklingSingleRequest;
         const w = windows[0];
         if (w.masks.len != 0) return error.InklingNoStructures;
-        out[0].sampled[0] = @intCast(try queue(p, w.stream, .{ .value = w.pending }, w.positions[0]));
+        if (w.parents != null or w.rows() > 8 or w.held > b.held_n) return error.InklingDraftRows;
+        if (b.active != w.stream) return error.InklingPosition;
+        for (w.positions, 0..) |position, i| if (position != b.f.s.pos + 1 + i) return error.InklingPosition;
+        if (b.f.drafter == null) {
+            if (w.rows() != 1) return error.InklingNoDrafts;
+            out[0].sampled[0] = @intCast(try queue(p, w.stream, .{ .value = w.pending }, w.positions[0]));
+            return;
+        }
+        var ids: [8]u32 = undefined;
+        ids[0] = w.pending;
+        const drafts = if (w.held > 0) b.held[0..w.held] else w.tokens;
+        @memcpy(ids[1..][0..drafts.len], drafts);
+        if (b.peer) |peer| try peer.send(.verify, ids[0..w.rows()], true);
+        try b.f.verify(ids[0..w.rows()], out[0].sampled);
+        b.rounds += 1;
+        b.verified += w.rows();
+        @memcpy(out[0].drafts[0..drafts.len], drafts);
     }
-    fn keep(_: *anyopaque, _: []const be.Window, paths: []const []const u32) anyerror!void {
-        for (paths) |path| if (path.len != 1 or path[0] != 0) return error.InklingNoDrafts;
+    fn keep(p: *anyopaque, _: []const be.Window, paths: []const []const u32) anyerror!void {
+        const b = self(p);
+        if (paths.len != 1 or paths[0].len == 0) return error.InklingDraftRows;
+        const path = paths[0];
+        for (path, 0..) |row, i| if (row != i) return error.InklingDraftRows;
+        if (b.f.drafter == null) {
+            if (path.len != 1) return error.InklingNoDrafts;
+            return;
+        }
+        if (b.peer) |peer| try peer.send(.keep, &.{@intCast(path.len)}, false);
+        try b.f.keep(path.len);
+        b.committed += path.len;
     }
-    fn draft(_: *anyopaque, requests: []const be.DraftRequest) anyerror!void {
-        for (requests) |r| if (r.depth != 0 or r.lanes != null) return error.InklingNoDrafts;
+    fn draft(p: *anyopaque, requests: []const be.DraftRequest) anyerror!void {
+        const b = self(p);
+        for (requests) |r| {
+            if (r.lanes != null or r.depth > 7) return error.InklingDraftRows;
+            b.held_n = 0;
+            if (r.depth == 0) continue;
+            const d = b.f.drafter orelse return error.InklingNoDrafts;
+            if (r.stream != b.active or r.position != b.f.s.pos + 1) return error.InklingPosition;
+            const anchor = if (r.follow.len > 0) r.follow[r.follow.len - 1] else switch (r.first orelse return error.InklingDraftRows) {
+                .value => |v| v,
+                .handle => |v| @as(u32, @intCast(v)),
+            };
+            if (b.peer) |peer| try peer.send(.draft, &.{ anchor, r.depth }, false);
+            try d.propose(b.f, anchor, r.depth, &b.held);
+            b.held_n = r.depth;
+        }
     }
     fn release(p: *anyopaque, s: *lanes.Stream) void {
         const b = self(p);
-        if (b.active == s) b.active = null;
+        if (b.active == s) {
+            if (b.f.drafter != null) std.log.info("inkling DSpark: {d} verifies, {d} proposed rows, {d} committed rows", .{ b.rounds, b.verified, b.committed });
+            b.active = null;
+        }
     }
 };

@@ -43,6 +43,9 @@ if docker container inspect "$name" >/dev/null 2>&1; then
     echo "Container $name already exists; inspect and stop its owning process before starting again." >&2
     exit 2
 fi
+drafts=(--no-drafts)
+[[ ${DRAFTS:-0} == 0 || ${DRAFTS:-0} == 1 ]] || { echo 'DRAFTS must be 0 or 1.' >&2; exit 2; }
+[[ ${DRAFTS:-0} == 0 ]] || drafts=()
 rdma=()
 [[ ! -d /dev/infiniband ]] || rdma=(--device /dev/infiniband)
 exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gpu" \
@@ -56,6 +59,6 @@ exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gp
     -e "TF_ROCE=${TF_ROCE:-1}" -e "TENSORFOLD_MEMORY_RESERVE_GIB=${RESERVE_GIB:-6}" \
     -v "$(cd "$model" && pwd):/model:ro" "$image" \
     serve /model --backend cuda --device 0 --context "${CONTEXT:-524288}" \
-    --parallel 1 --no-drafts --no-thinking --temperature 0 --prompt-cache-gib 0 \
+    --parallel 1 "${drafts[@]}" --no-thinking --temperature 0 --prompt-cache-gib 0 \
     --host "${API_HOST:-127.0.0.1}" --port "${API_PORT:-8000}" --name inkling-2-small \
     --no-update-check "$@"

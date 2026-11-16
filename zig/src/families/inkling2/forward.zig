@@ -24,13 +24,33 @@ pub const Forward = struct {
     decode_reported: bool = false,
     dense_reported: bool = false,
     blas_version: usize = 0,
+    drafter: ?*@import("draft.zig").Draft = null,
+    verifying: bool = false,
+    verify_start: usize = 0,
+    history_offset: usize = 0,
+    verify_mod: ?cuda.Module = null,
+    verify_bf16: cuda.Function = undefined,
+    verify_f32: cuda.Function = undefined,
+    verify_conv: cuda.Function = undefined,
+    verify_check: bool = false,
 
     pub fn deinit(f: *Forward) void {
         for (f.plans.items) |*p| p.plan.deinit();
         f.plans.deinit(f.gpa);
+        if (f.verify_mod) |m| m.unload();
     }
 
-    fn product(f: *Forward, l: wt.Linear, x: u64, out: u64, rows: usize, kind: cuda.cublaslt.DataType) !void {
+    pub fn product(f: *Forward, l: wt.Linear, x: u64, out: u64, rows: usize, kind: cuda.cublaslt.DataType) !void {
+        if (f.verifying and rows > 1) {
+            if (@import("dense.zig").serves(121, f.lt.api.cublasLtGetVersion(), 1, l.n, l.k, kind)) {
+                var args: cuda.Args = .{};
+                inline for (.{ x, l.ptr, out, int(l.k), int(l.n), int(rows) }) |v| args.add(v);
+                return cuda.launch.launch(if (kind == .bf16) f.verify_bf16 else f.verify_f32, .{ .grid = .{ .x = @intCast(l.n / 8 * rows) }, .block = .{ .x = 32 } }, f.stream, &args);
+            }
+            const bytes: usize = if (kind == .bf16) 2 else 4;
+            for (0..rows) |r| try f.product(l, x + r * l.k * 2, out + r * l.n * bytes, 1, kind);
+            return;
+        }
         if (f.k.dense) |*dense| {
             if (f.blas_version == 0) f.blas_version = f.lt.api.cublasLtGetVersion();
             if (@import("dense.zig").serves(121, f.blas_version, rows, l.n, l.k, kind)) {
@@ -49,20 +69,39 @@ pub const Forward = struct {
         try p.run(x, l.ptr, out, f.s.workspace, 64 << 20, f.stream.handle);
     }
 
-    fn zero(f: *Forward, ptr: u64, bytes: usize) !void {
+    pub fn zero(f: *Forward, ptr: u64, bytes: usize) !void {
         try f.d.check(f.d.api.cuMemsetD8Async(ptr, 0, bytes, f.stream.handle), "inkling zero slots");
     }
 
-    fn gather(f: *Forward, input: u64, output: u64, bytes: usize) !void {
+    pub fn gather(f: *Forward, input: u64, output: u64, bytes: usize) !void {
         if (f.exchange) |e| {
             if (e.group) |g| return g.allGather(f.stream, input, output, bytes);
             try e.lib.check(e.lib.api.ncclAllGather(input, output, bytes, .u8, e.comm, f.stream.handle), "inkling all-gather");
         } else try f.d.check(f.d.api.cuMemcpyDtoDAsync_v2(output, input, bytes, f.stream.handle), "inkling local gather");
     }
 
+    pub fn copy(f: *Forward, dst: u64, src: u64, bytes: usize) !void {
+        try f.d.check(f.d.api.cuMemcpyDtoDAsync_v2(dst, src, bytes, f.stream.handle), "inkling copy");
+    }
+
+    pub fn prepareVerify(f: *Forward) !void {
+        const m = try cuda.Module.load(f.d, cuda.kernels.inkling2_verify);
+        f.verify_mod = m;
+        f.verify_bf16 = try m.function("tf_ik_verify_bf16");
+        f.verify_f32 = try m.function("tf_ik_verify_f32");
+        f.verify_conv = try m.function("tf_ik_verify_conv");
+    }
+
     fn conv(f: *Forward, c: wt.Conv, input: u64, dynamic_input: u64, history: u64, output: u64, rows: usize) !void {
         if (c.dynamic) |w| try f.product(w, dynamic_input, f.s.dynamic, rows, .bf16);
         try f.k.go(.conv, f.stream, .{ .x = ceil(rows * c.width, 256) }, 256, .{ input, c.weight, if (c.dynamic != null) f.s.dynamic else @as(u64, 0), history, output, int(rows), int(c.width) });
+        if (f.verifying) {
+            const d = f.drafter orelse return error.InklingNoDrafts;
+            var args: cuda.Args = .{};
+            inline for (.{ input, history, d.snapshots + f.history_offset * 2, int(rows), int(c.width), int(d.snapshot_stride) }) |v| args.add(v);
+            try cuda.launch.launch(f.verify_conv, .{ .grid = .{ .x = ceil(c.width, 256), .y = @intCast(rows + 1) }, .block = .{ .x = 256 } }, f.stream, &args);
+            f.history_offset += 3 * c.width;
+        }
         try f.k.go(.conv_commit, f.stream, .{ .x = ceil(c.width, 256) }, 256, .{ input, history, int(rows), int(c.width) });
     }
 
@@ -106,7 +145,19 @@ pub const Forward = struct {
         try f.k.go(.prep, stream, .{ .x = @intCast(heads), .y = @intCast(rows) }, 128, .{ s.r, l.r_scale, s.r, @as(u64, 0), int(heads), @as(i32, 16), int(s.pos), int(cache.capacity), @as(i32, 3), @as(i32, @intFromBool(!local)) });
         try f.k.go(.relative, stream, .{ .x = 8, .y = @intCast(rows * heads) }, 128, .{ s.r, l.relative, s.relative, int(heads) });
         const attention: kern.Attention = .{ .q = s.q, .k = cache.k, .v = cache.v, .relative = s.relative, .gate = s.gate, .sink = s.sink, .out = s.attn_heads, .rows = int(rows), .pos = int(s.pos), .hq = int(heads), .hk = int(keys), .capacity = int(cache.capacity), .window = if (local) 1023 else 0 };
-        if (rows == 1 and f.k.split_decode) {
+        if (f.verifying and rows > 1) {
+            for (0..rows) |r| {
+                var a = attention;
+                a.rows = 1;
+                a.pos += int(r);
+                a.q += r * heads * 128 * 2;
+                a.relative += r * heads * 1024 * 2;
+                a.gate += r * heads * 128 * 2;
+                a.sink += r * heads * 2;
+                a.out += r * heads * 128 * 2;
+                try f.k.go(.attention_decode, stream, .{ .x = 1, .y = @intCast(heads), .z = 4 }, 128, .{a});
+            }
+        } else if (rows == 1 and f.k.split_decode) {
             try f.k.go(.attention_decode, stream, .{ .x = 1, .y = @intCast(heads), .z = 4 }, 128, .{attention});
             if (!f.decode_reported) {
                 std.log.info("inkling attention decode: tf_ik_attention_decode, 4 output partitions per head", .{});
@@ -145,25 +196,96 @@ pub const Forward = struct {
         try cuda.copy_source.enqueue(f.d, s.ids, std.mem.sliceAsBytes(ids), f.stream);
         try f.k.go(.embed, f.stream, .{ .x = ceil(rows * cfg.hidden, 256) }, 256, .{ s.ids, f.w.embed, s.raw_embed, int(rows), @as(i32, cfg.hidden) });
         try f.k.go(.norm, f.stream, .{ .x = @intCast(rows) }, 256, .{ s.raw_embed, f.w.embed_norm, s.partial, @as(i32, cfg.hidden) });
-        for (f.w.layer, 0..) |l, i| try f.layer(l, i, rows);
+        f.history_offset = 0;
+        for (f.w.layer, 0..) |l, i| {
+            if (f.drafter) |d| for (@import("draft_config.zig").targets, 0..) |tap, j| {
+                if (i == tap) try f.copy(d.taps + j * s.rows * cfg.hidden * 2, s.partial, rows * cfg.hidden * 2);
+            };
+            try f.layer(l, i, rows);
+        }
+        const start = s.pos;
         s.pos += rows;
+        if (!final and f.drafter == null) return;
+        const all = f.verifying or f.drafter != null;
+        const last = if (all) 0 else (rows - 1) * cfg.hidden * 2;
+        const norm_rows = if (all) rows else 1;
+        try f.k.go(.mix, f.stream, .{ .x = @intCast(norm_rows) }, 256, .{kern.Mix{ .partial = s.partial + last, .blocks = s.blocks + last, .attention = 0, .query = f.w.output_query, .norm = f.w.norm, .out = s.normed, .rows = int(norm_rows), .width = cfg.hidden, .block_stride = int(s.rows * cfg.hidden), .blocks_count = int(cfg.blocksBefore(f.w.layer.len)), .queries = 1, .mode = 0 }});
+        if (f.drafter) |d| {
+            try f.copy(d.taps + 7 * s.rows * cfg.hidden * 2, s.normed, rows * cfg.hidden * 2);
+            if (!f.verifying) try d.ingest(f, start, rows);
+        }
         if (!final) return;
-        const last = (rows - 1) * cfg.hidden * 2;
-        try f.k.go(.mix, f.stream, .{ .x = 1 }, 256, .{kern.Mix{ .partial = s.partial + last, .blocks = s.blocks + last, .attention = 0, .query = f.w.output_query, .norm = f.w.norm, .out = s.normed, .rows = 1, .width = cfg.hidden, .block_stride = int(s.rows * cfg.hidden), .blocks_count = int(cfg.blocksBefore(f.w.layer.len)), .queries = 1, .mode = 0 }});
-        try f.product(f.w.head, s.normed, s.logits, 1, .f32);
+        const d = f.drafter;
+        const logits = if (f.verifying) d.?.verify_logits else s.logits;
+        const picks = if (f.verifying) d.?.verify_picks else s.top1;
         const n = f.w.head.n;
+        const head_rows = if (f.verifying) rows else 1;
+        const head_x = s.normed + (if (all and !f.verifying) (rows - 1) * cfg.hidden * 2 else 0);
+        try f.product(f.w.head, head_x, logits, head_rows, .f32);
         const first = f.w.share.rank * n;
-        try f.k.go(.logits, f.stream, .{ .x = ceil(n, 256) }, 256, .{ s.logits, int(n) });
-        try f.k.go(.top1, f.stream, .{ .x = 1 }, 256, .{ s.logits, s.top1 + f.w.share.rank * 16, int(@min(n, cfg.vocabulary - first)), int(first) });
-        try f.gather(s.top1 + f.w.share.rank * 16, s.top1, 16);
+        try f.k.go(.logits, f.stream, .{ .x = ceil(head_rows * n, 256) }, 256, .{ logits, int(head_rows * n) });
+        const mine = picks + f.w.share.rank * head_rows * 16;
+        for (0..head_rows) |r| try f.k.go(.top1, f.stream, .{ .x = 1 }, 256, .{ logits + r * n * 4, mine + r * 16, int(@min(n, cfg.vocabulary - first)), int(first) });
+        try f.gather(mine, picks, head_rows * 16);
+    }
+
+    pub fn verify(f: *Forward, ids: []const u32, out: []u32) !void {
+        if (ids.len > 8 or out.len < ids.len or f.drafter == null) return error.InklingDraftRows;
+        f.verify_start = f.s.pos;
+        f.verifying = true;
+        defer f.verifying = false;
+        try f.run(ids, true);
+        for (0..ids.len) |r| {
+            try f.copy(f.s.top1, f.drafter.?.verify_picks + r * 16, 16);
+            try f.copy(f.s.top1 + 16, f.drafter.?.verify_picks + (ids.len + r) * 16, 16);
+            out[r] = try f.pick();
+        }
+        if (f.verify_check) {
+            try f.restoreHistory(0);
+            f.s.pos = f.verify_start;
+            const d = f.drafter;
+            f.drafter = null;
+            f.verifying = false;
+            defer f.drafter = d;
+            for (ids, 0..) |id, r| {
+                try f.run(&.{id}, true);
+                const token = try f.pick();
+                if (token != out[r]) {
+                    std.log.err("inkling verify row {d} at {d}: batched token {d}, plain {d}", .{ r, f.verify_start, out[r], token });
+                    return error.InklingVerifyMismatch;
+                }
+            }
+        }
+    }
+
+    fn restoreHistory(f: *Forward, count: usize) !void {
+        const d = f.drafter orelse return error.InklingNoDrafts;
+        var offset: usize = 0;
+        for (f.s.cache) |c| for (c.conv, 0..) |history, j| {
+            const size = 3 * (if (j < 2) f.w.share.keyHeads() * 128 else cfg.hidden);
+            try f.copy(history, d.snapshots + (count * d.snapshot_stride + offset) * 2, size * 2);
+            offset += size;
+        };
+    }
+
+    pub fn keep(f: *Forward, count: usize) !void {
+        const d = f.drafter orelse return error.InklingNoDrafts;
+        if (count == 0 or count > f.s.pos - f.verify_start) return error.InklingDraftRows;
+        try f.restoreHistory(count);
+        try d.ingest(f, f.verify_start, count);
+        f.s.pos = f.verify_start + count;
     }
 
     pub fn pick(f: *Forward) !u32 {
+        return f.pickAt(f.s.top1);
+    }
+
+    pub fn pickAt(f: *Forward, ptr: u64) !u32 {
         try f.stream.synchronize();
         if (f.exchange) |e| if (e.group) |g| try g.check();
         var picks: [2]kern.Pick = undefined;
         const all = picks[0..f.w.share.world];
-        try cuda.memory.download(f.d, f.s.top1, std.mem.sliceAsBytes(all));
+        try cuda.memory.download(f.d, ptr, std.mem.sliceAsBytes(all));
         var best: kern.Pick = .{ .value = -std.math.inf(f32), .token = std.math.maxInt(u32), .nonfinite = 0, .pad = 0 };
         for (all) |p| {
             if (p.nonfinite != 0) return error.NonFiniteLogits;

@@ -3,7 +3,7 @@ const std = @import("std");
 const cuda = @import("cuda");
 const forward = @import("forward.zig");
 
-pub const Kind = enum(u32) { begin = 1, rows, end };
+pub const Kind = enum(u32) { begin = 1, rows, end, verify, keep, draft };
 const Header = extern struct { kind: u32, rows: u32 = 0, final: u32 = 0, reserved: u32 = 0 };
 
 pub const Link = struct {
@@ -54,13 +54,29 @@ pub const Link = struct {
                     if (header.rows != 0) return error.InklingCommand;
                     try f.s.clear();
                 },
-                .rows => {
+                .rows, .verify, .keep, .draft => {
                     if (header.rows == 0 or header.rows > ids.len or header.final > 1) return error.InklingCommand;
                     const values = ids[0..header.rows];
                     try l.broadcast(l.ids.ptr, values.len * 4);
                     try l.stream.synchronize();
                     try l.ids.download(0, std.mem.sliceAsBytes(values));
-                    try f.run(values, header.final != 0);
+                    switch (kind) {
+                        .rows => try f.run(values, header.final != 0),
+                        .verify => {
+                            var sampled: [8]u32 = undefined;
+                            try f.verify(values, &sampled);
+                        },
+                        .keep => {
+                            if (values.len != 1) return error.InklingCommand;
+                            try f.keep(values[0]);
+                        },
+                        .draft => {
+                            if (values.len != 2) return error.InklingCommand;
+                            var proposals: [7]u32 = undefined;
+                            try (f.drafter orelse return error.InklingNoDrafts).propose(f, values[0], values[1], &proposals);
+                        },
+                        else => unreachable,
+                    }
                 },
                 .end => return,
             }

@@ -46,6 +46,7 @@ const Owned = struct {
     comm: cuda.nccl.Comm = null,
     group: ?cuda.tp_group.Group = null,
     peer: ?link.Link = null,
+    draft: ?@import("draft.zig").Draft = null,
 };
 
 pub fn place() !cfg.Share {
@@ -126,6 +127,13 @@ fn openPair(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     own.peer = try link.Link.init(ctx.d, &own.lib.?, own.comm, own.stream, own.s.rows);
     errdefer own.peer.?.deinit();
     own.f = .{ .gpa = gpa, .d = ctx.d, .stream = own.stream, .w = &own.w, .s = &own.s, .k = &own.k, .lt = &own.lt, .exchange = .{ .lib = &own.lib.?, .comm = own.comm, .group = &own.group.? } };
+    if (o.drafts) {
+        own.draft = try @import("draft.zig").Draft.init(gpa, io, ctx.d, dir, share, o.context, own.s.rows);
+        own.f.drafter = &own.draft.?;
+        own.f.verify_check = try environment.read(bool, "TF_INKLING_VERIFY_CHECK", false);
+        try own.f.prepareVerify();
+    }
+    errdefer if (own.draft) |*d| d.deinit();
     own.b = .{ .f = &own.f, .peer = &own.peer.? };
     const bytes = try manifest(gpa, io, dir);
     defer gpa.free(bytes);
@@ -141,7 +149,7 @@ fn openPair(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
         release(own);
         std.c._exit(0);
     }
-    return .{ .backend = own.b.backend(), .facts = backend.Backend.facts(), .rows = 1, .stream_bytes = kv, .ctx = own, .deinit = release, .target = own };
+    return .{ .backend = own.b.backend(), .facts = backend.Backend.facts(o.drafts), .rows = if (o.drafts) 8 else 1, .stream_bytes = kv, .ctx = own, .deinit = release, .target = own };
 }
 
 fn release(p: *anyopaque) void {
@@ -154,6 +162,7 @@ fn release(p: *anyopaque) void {
     o.f.deinit();
     if (o.peer) |*l| l.deinit();
     if (o.group) |*g| if (g.fast) |f| f.deinit();
+    if (o.draft) |*d| d.deinit();
     o.s.deinit();
     o.w.deinit();
     o.lt.close();

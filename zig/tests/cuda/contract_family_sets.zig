@@ -22,6 +22,7 @@ pub const Sets = struct {
     prompt: *Prompt,
     joint_schema: *@import("contract_joint_schema.zig").Set,
     inkling: ?*@import("contract_inkling_attention.zig").Set,
+    inkling_verify: ?*@import("contract_inkling_verify.zig").Set,
     inkling_dense: ?*@import("contract_inkling_dense.zig").Set,
 
     /// Each set's kernels appended to `list`, in this order.
@@ -64,7 +65,10 @@ pub const Sets = struct {
         const inkling = try @import("contract_inkling_attention.zig").Set.init(gpu, s, a, list);
         errdefer if (inkling) |x| x.deinit();
         const inkling_dense = try @import("contract_inkling_dense.zig").Set.init(gpu, s, a, list);
+        errdefer if (inkling_dense) |x| x.deinit();
+        const inkling_verify = try @import("contract_inkling_verify.zig").Set.init(gpu, s, a, list);
         return .{
+            .inkling_verify = inkling_verify,
             .gpa = gpu.gpa,
             .bf16_experts = bf16_experts,
             .pocket = pocket,
@@ -83,6 +87,7 @@ pub const Sets = struct {
     }
 
     pub fn deinit(sets: Sets) void {
+        if (sets.inkling_verify) |x| x.deinit();
         if (sets.inkling_dense) |x| x.deinit();
         if (sets.inkling) |x| x.deinit();
         sets.joint_schema.deinit();
