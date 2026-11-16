@@ -33,11 +33,13 @@ pub const Forward = struct {
     verify_f32: cuda.Function = undefined,
     verify_conv: cuda.Function = undefined,
     verify_check: bool = false,
+    audit: ?@import("verify_audit.zig").Audit = null,
 
     pub fn deinit(f: *Forward) void {
         for (f.plans.items) |*p| p.plan.deinit();
         f.plans.deinit(f.gpa);
         if (f.verify_mod) |*m| m.unload();
+        if (f.audit) |*a| a.deinit();
     }
 
     pub fn product(f: *Forward, l: wt.Linear, x: u64, out: u64, rows: usize, kind: cuda.cublaslt.DataType) !void {
@@ -90,6 +92,7 @@ pub const Forward = struct {
         f.verify_bf16 = try m.function("tf_ik_verify_bf16");
         f.verify_f32 = try m.function("tf_ik_verify_f32");
         f.verify_conv = try m.function("tf_ik_verify_conv");
+        if (f.verify_check) f.audit = try @import("verify_audit.zig").Audit.init(f.d, f.s.cache.len, f.w.share.keyHeads() * 128);
     }
 
     fn conv(f: *Forward, c: wt.Conv, input: u64, dynamic_input: u64, history: u64, output: u64, rows: usize) !void {
@@ -189,6 +192,7 @@ pub const Forward = struct {
     }
 
     pub fn run(f: *Forward, ids: []const u32, final: bool) !void {
+        if (!f.verifying) try f.settleDraft();
         const rows = ids.len;
         const s = f.s;
         if (rows == 0 or rows > s.rows or rows + s.pos > s.context) return error.InklingContext;
@@ -231,6 +235,7 @@ pub const Forward = struct {
 
     pub fn verify(f: *Forward, ids: []const u32, out: []u32) !void {
         if (ids.len > 8 or out.len < ids.len or f.drafter == null) return error.InklingDraftRows;
+        try f.settleDraft();
         f.verify_start = f.s.pos;
         f.verifying = true;
         defer f.verifying = false;
@@ -241,6 +246,7 @@ pub const Forward = struct {
             out[r] = try f.pick();
         }
         if (f.verify_check) {
+            try f.audit.?.snapshot(f, ids.len);
             try f.restoreHistory(0);
             f.s.pos = f.verify_start;
             const d = f.drafter;
@@ -254,6 +260,7 @@ pub const Forward = struct {
                     std.log.err("inkling verify row {d} at {d}: batched token {d}, plain {d}", .{ r, f.verify_start, out[r], token });
                     return error.InklingVerifyMismatch;
                 }
+                try f.audit.?.checkRow(f, d.?, r);
             }
         }
     }
@@ -269,11 +276,22 @@ pub const Forward = struct {
     }
 
     pub fn keep(f: *Forward, count: usize) !void {
-        const d = f.drafter orelse return error.InklingNoDrafts;
+        if (f.drafter == null) return error.InklingNoDrafts;
         if (count == 0 or count > f.s.pos - f.verify_start) return error.InklingDraftRows;
         try f.restoreHistory(count);
-        try d.ingest(f, f.verify_start, count);
         f.s.pos = f.verify_start + count;
+    }
+
+    pub fn settleDraft(f: *Forward) !void {
+        const d = f.drafter orelse return;
+        const count = try @import("draft_commit.zig").pending(f.s.pos, d.pos, f.verify_start);
+        if (count > 0) try d.ingest(f, d.pos, count);
+    }
+
+    pub fn clear(f: *Forward) !void {
+        try f.s.clear();
+        if (f.drafter) |d| d.pos = 0;
+        if (f.audit) |*a| a.checked = 0;
     }
 
     pub fn pick(f: *Forward) !u32 {

@@ -15,7 +15,6 @@ pub const Backend = struct {
     held_n: usize = 0,
     rounds: usize = 0,
     verified: usize = 0,
-    committed: usize = 0,
 
     pub fn backend(b: *Backend) be.Backend {
         return .{ .ptr = b, .vtable = &vtable };
@@ -34,13 +33,12 @@ pub const Backend = struct {
         if (s.sampling) |sp| if (sp.temperature > 0) return error.InklingGreedyOnly;
         if (s.prompt().len == 0 or s.prompt().len + s.max_new > b.f.s.context) return error.InklingContext;
         if (b.peer) |p| try p.send(.begin, &.{}, false);
-        try b.f.s.clear();
+        try b.f.clear();
         b.active = s;
         b.filling = 0;
         b.held_n = 0;
         b.rounds = 0;
         b.verified = 0;
-        b.committed = 0;
         s.cached = 0;
         if (s.reuse.saved != null) s.reuse_failed = true;
     }
@@ -120,7 +118,6 @@ pub const Backend = struct {
         }
         if (b.peer) |peer| try peer.send(.keep, &.{@intCast(path.len)}, false);
         try b.f.keep(path.len);
-        b.committed += path.len;
     }
     fn draft(p: *anyopaque, requests: []const be.DraftRequest) anyerror!void {
         const b = self(p);
@@ -142,7 +139,8 @@ pub const Backend = struct {
     fn release(p: *anyopaque, s: *lanes.Stream) void {
         const b = self(p);
         if (b.active == s) {
-            if (b.f.drafter != null) std.log.info("inkling DSpark: {d} verifies, {d} proposed rows, {d} committed rows", .{ b.rounds, b.verified, b.committed });
+            if (b.f.drafter != null) std.log.info("inkling DSpark: {d} verification windows, {d} input rows", .{ b.rounds, b.verified });
+            if (b.f.audit) |a| std.log.info("inkling verification audit: {d} rows checked for logits, hidden, KV and history bytes", .{a.checked});
             b.active = null;
         }
     }

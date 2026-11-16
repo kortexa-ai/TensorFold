@@ -52,7 +52,7 @@ pub const Link = struct {
             switch (kind) {
                 .begin => {
                     if (header.rows != 0) return error.InklingCommand;
-                    try f.s.clear();
+                    try f.clear();
                 },
                 .rows, .verify, .keep, .draft => {
                     if (header.rows == 0 or header.rows > ids.len or header.final > 1) return error.InklingCommand;

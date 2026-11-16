@@ -127,13 +127,14 @@ fn openPair(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     own.peer = try link.Link.init(ctx.d, &own.lib.?, own.comm, own.stream, own.s.rows);
     errdefer own.peer.?.deinit();
     own.f = .{ .gpa = gpa, .d = ctx.d, .stream = own.stream, .w = &own.w, .s = &own.s, .k = &own.k, .lt = &own.lt, .exchange = .{ .lib = &own.lib.?, .comm = own.comm, .group = &own.group.? } };
+    errdefer own.f.deinit();
+    errdefer if (own.draft) |*d| d.deinit();
     if (o.drafts) {
         own.draft = try @import("draft.zig").Draft.init(gpa, io, ctx.d, dir, share, o.context, own.s.rows);
         own.f.drafter = &own.draft.?;
         own.f.verify_check = try environment.read(bool, "TF_INKLING_VERIFY_CHECK", false);
         try own.f.prepareVerify();
     }
-    errdefer if (own.draft) |*d| d.deinit();
     own.b = .{ .f = &own.f, .peer = &own.peer.? };
     const bytes = try manifest(gpa, io, dir);
     defer gpa.free(bytes);
@@ -187,6 +188,8 @@ pub fn explain(_: ?*anyopaque, err: anyerror) ?[]const u8 {
         error.InklingSingleRequest, error.InklingBusy => "Inkling's initial native text profile holds one request; use --parallel 1",
         error.InklingTextOnly => "Inkling's initial native profile supports text only",
         error.InklingGreedyOnly => "Inkling's initial native profile supports greedy decoding; set temperature to 0",
+        error.InklingDraftPosition => "Inkling draft features do not match the committed target prefix",
+        error.InklingVerifyMismatch => "Inkling batched verification differs from the plain target; the audit refused generation",
         error.InklingNoDrafts => "Inkling's native profile has no qualified draft head or copy windows",
         error.InklingNoStructures => "Inkling's initial native profile has no structured-output path",
         error.NonFiniteLogits => "Inkling produced non-finite logits; generation stopped",

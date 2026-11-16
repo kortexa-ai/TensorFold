@@ -30,6 +30,7 @@ const Layer = struct {
 };
 
 pub const Draft = struct {
+    pos: usize = 0,
     owner: wt.Weights,
     module: cuda.Module,
     ops: std.EnumArray(Op, cuda.Function),
@@ -163,6 +164,7 @@ pub const Draft = struct {
     }
     pub fn ingest(d: *Draft, f: *Forward, pos: usize, count: usize) !void {
         if (count == 0) return error.InklingDraftRows;
+        if (pos != d.pos) return error.InklingDraftPosition;
         for (d.layers, 0..) |l, i| {
             try d.go(f, .mix, .{ .x = @intCast(count) }, 256, .{ d.taps, d.alpha + i * 16, l.context_norm, d.context_x, int(f.s.rows * 4608) });
             try f.product(l.kc, d.context_x, d.k, count, .bf16);
@@ -171,6 +173,7 @@ pub const Draft = struct {
             try d.go(f, .store, .{ .x = ceil(count * 512, 256) }, 256, .{ d.v, l.cache_v, @as(i32, 512), int(pos), int(l.capacity), int(count) });
         }
         try d.go(f, .mix, .{ .x = 1 }, 256, .{ d.taps + (count - 1) * 4608 * 2, d.alpha + 5 * 16, d.markov_norm, d.f_rnn, int(f.s.rows * 4608) });
+        d.pos = pos + count;
     }
     fn reduce(d: *Draft, f: *Forward, l: wt.Linear, x: u64) !void {
         const bytes = 8 * 4608 * 4;
@@ -181,6 +184,8 @@ pub const Draft = struct {
         try d.go(f, .add, .{ .x = ceil(8 * 4608, 256) }, 256, .{ d.x, d.residual, @as(i32, 8 * 4608) });
     }
     pub fn propose(d: *Draft, f: *Forward, anchor: u32, depth: usize, out: []u32) !void {
+        try f.settleDraft();
+        if (d.pos != f.s.pos) return error.InklingDraftPosition;
         if (anchor >= cfg.vocabulary or depth > 7 or out.len < depth) return error.InklingDraftRows;
         if (depth == 0) return;
         try f.copy(d.x, f.w.embed + @as(usize, anchor) * 4608 * 2, 4608 * 2);

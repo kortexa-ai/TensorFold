@@ -9,6 +9,7 @@ pub const native = @import("native.zig");
 test {
     _ = config;
     _ = @import("draft_config.zig");
+    _ = @import("draft_commit.zig");
     _ = kernels;
     _ = native;
     _ = @import("link.zig");
