@@ -37,7 +37,7 @@ pub const Forward = struct {
     pub fn deinit(f: *Forward) void {
         for (f.plans.items) |*p| p.plan.deinit();
         f.plans.deinit(f.gpa);
-        if (f.verify_mod) |m| m.unload();
+        if (f.verify_mod) |*m| m.unload();
     }
 
     pub fn product(f: *Forward, l: wt.Linear, x: u64, out: u64, rows: usize, kind: cuda.cublaslt.DataType) !void {

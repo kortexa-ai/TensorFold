@@ -52,6 +52,7 @@ exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gp
     --ulimit memlock=-1 --cap-add IPC_LOCK "${rdma[@]}" \
     --label ai.kortexa.inkling2.native=1 --label "ai.kortexa.inkling2.rank=$rank" \
     -e "TF_INKLING_RANK=$rank" -e TF_INKLING_WORLD=2 \
+    -e "TF_INKLING_VERIFY_CHECK=${TF_INKLING_VERIFY_CHECK:-0}" \
     -e "NCCL_COMM_ID=$master:${MASTER_PORT:-29597}" -e "NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME" \
     -e "TF_ROCE_HCA=$hca" -e "NCCL_IB_HCA=${NCCL_IB_HCA:-$hca}" \
     -e NCCL_RUNTIME_CONNECT=0 -e NCCL_CUMEM_ENABLE=0 -e NCCL_CUMEM_HOST_ENABLE=0 \

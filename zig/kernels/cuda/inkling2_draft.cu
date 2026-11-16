@@ -2,6 +2,25 @@
 #include "inkling2_common.cuh"
 using namespace inkling2;
 
+__device__ __constant__ float draft_frequency[64] = {
+    0x1.0000000000000p+0f, 0x1.9c97580000000p-1f, 0x1.4c7bc00000000p-1f, 0x1.0beddc0000000p-1f,
+    0x1.afd1360000000p-2f, 0x1.5bf9fe0000000p-2f, 0x1.186a080000000p-2f, 0x1.c3f06c0000000p-3f,
+    0x1.6c310e0000000p-3f, 0x1.257b220000000p-3f, 0x1.d8ffaa0000000p-4f, 0x1.7d298e0000000p-4f,
+    0x1.33281c0000000p-4f, 0x1.ef0a240000000p-5f, 0x1.8eec7e0000000p-5f, 0x1.41783a0000000p-5f,
+    0x1.030dc40000000p-5f, 0x1.a183500000000p-6f, 0x1.5073160000000p-6f, 0x1.0f20100000000p-6f,
+    0x1.b4f7e20000000p-7f, 0x1.6020a40000000p-7f, 0x1.1bc25a0000000p-7f, 0x1.c9548c0000000p-8f,
+    0x1.7089380000000p-8f, 0x1.28fb5c0000000p-8f, 0x1.dea41a0000000p-9f, 0x1.81b58a0000000p-9f,
+    0x1.36d21a0000000p-9f, 0x1.f4f1e20000000p-10f, 0x1.93aeb80000000p-10f, 0x1.454dec0000000p-10f,
+    0x1.0624de0000000p-10f, 0x1.a67e4e0000000p-11f, 0x1.5476860000000p-11f, 0x1.125c040000000p-11f,
+    0x1.ba2e4c0000000p-12f, 0x1.6453f60000000p-12f, 0x1.1f24e40000000p-12f, 0x1.cec9220000000p-13f,
+    0x1.74eea60000000p-13f, 0x1.2c86460000000p-13f, 0x1.e459c60000000p-14f, 0x1.864f6a0000000p-14f,
+    0x1.3a87480000000p-14f, 0x1.faebaa0000000p-15f, 0x1.987f7a0000000p-15f, 0x1.492f560000000p-15f,
+    0x1.0945660000000p-15f, 0x1.ab88840000000p-16f, 0x1.58863a0000000p-16f, 0x1.15a1da0000000p-16f,
+    0x1.bf749e0000000p-17f, 0x1.68941c0000000p-17f, 0x1.2291c40000000p-17f, 0x1.d44e620000000p-18f,
+    0x1.7961820000000p-18f, 0x1.301c040000000p-18f, 0x1.ea20e00000000p-19f, 0x1.8af7560000000p-19f,
+    0x1.3e47c80000000p-19f, 0x1.007bd80000000p-19f, 0x1.9d5ef20000000p-20f, 0x1.4d1c980000000p-20f
+};
+
 extern "C" __global__ void tf_ik_draft_mix(const bf16* taps, const bf16* alpha, const bf16* norm,
                                          bf16* out, int stride) {
     const int row = blockIdx.x, t = threadIdx.x;
@@ -31,7 +50,7 @@ extern "C" __global__ void tf_ik_draft_prep(const bf16* x, const bf16* norm, bf1
     const int other = (c + 64) % 128;
     const float v = normalized[c];
     const float w = normalized[other];
-    const float angle = (pos + row) * powf(1000000.f, -2.f * (c % 64) / 128.f);
+    const float angle = (pos + row) * draft_frequency[c % 64];
     const bf16 result = b(v * cosf(angle) + (c < 64 ? -w : w) * sinf(angle));
     out[at + c] = result;
     if (cache) cache[((size_t)((pos + row) % capacity) * heads + head) * 128 + c] = result;
@@ -93,21 +112,21 @@ extern "C" __global__ void tf_ik_draft_swiglu(const bf16* gate, const bf16* up, 
     if (i < count) { const float x = f(gate[i]); out[i] = b(f(b(x / (1.f + expf(-x)))) * f(up[i])); }
 }
 
-extern "C" __global__ void tf_ik_draft_gates(const bf16* projection, const bf16* bias, bf16* state, bf16* latent) {
+extern "C" __global__ void tf_ik_draft_gates(const float* projection, const bf16* bias, bf16* state, bf16* latent) {
     const int c = threadIdx.x;
-    const float g = f(b(f(projection[c]) + f(bias[c])));
-    const float candidate = f(b(f(projection[256 + c]) + f(bias[256 + c])));
-    const float output = f(b(f(projection[512 + c]) + f(bias[512 + c])));
+    const float g = f(b(projection[c] + f(bias[c])));
+    const float candidate = f(b(projection[256 + c] + f(bias[256 + c])));
+    const float output = f(b(projection[512 + c] + f(bias[512 + c])));
     const float gate = f(b(1.f / (1.f + expf(-g))));
     state[c] = b(f(b(gate * f(state[c]))) + f(b(f(b(1.f - gate)) * f(b(tanhf(candidate))))));
     latent[c] = b(tanhf(output));
 }
 
-extern "C" __global__ void tf_ik_draft_logits(const bf16* base, const bf16* correction,
+extern "C" __global__ void tf_ik_draft_logits(const bf16* base, const float* correction,
                                             const bf16* bias, float* out, int n) {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) {
-        const float delta = f(b(f(correction[i]) + f(bias[i])));
+        const float delta = f(b(correction[i] + f(bias[i])));
         const float logit = f(b(f(base[i]) + delta));
         out[i] = 30.f * tanhf(logit / 30.f);
     }

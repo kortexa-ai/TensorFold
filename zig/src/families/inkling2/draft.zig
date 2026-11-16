@@ -91,6 +91,11 @@ pub const Draft = struct {
         var d: Draft = .{ .owner = .{ .gpa = gpa, .d = driver, .share = share }, .module = module, .ops = undefined };
         errdefer d.owner.deinit();
         inline for (comptime std.meta.tags(Op)) |op| d.ops.set(op, try module.function("tf_ik_draft_" ++ @tagName(op)));
+        const config_path = try std.fs.path.join(gpa, &.{ dir, "auxiliary/config.json" });
+        defer gpa.free(config_path);
+        const config_bytes = try std.Io.Dir.cwd().readFileAlloc(io, config_path, gpa, .limited(1 << 20));
+        defer gpa.free(config_bytes);
+        try dc.admit(gpa, config_bytes);
         var file = try wt.open(gpa, io, dir, "auxiliary/mtp.safetensors");
         defer file.closeCopied(io);
         var fold = try wt.open(gpa, io, dir, "auxiliary/dspark-fold.safetensors");
@@ -133,10 +138,10 @@ pub const Draft = struct {
         d.residual = try d.take(8 * 4608 * 2);
         d.f_rnn = try d.take(4608 * 2);
         d.rnn_input = try d.take(9728 * 2);
-        d.projection = try d.take(768 * 2);
+        d.projection = try d.take(768 * 4);
         d.latent = try d.take(256 * 2);
         d.base_logits = try d.take(8 * d.fold.n * 2);
-        d.correction = try d.take(d.fold.n * 2);
+        d.correction = try d.take(d.fold.n * 4);
         d.logits = try d.take(d.fold.n * 4);
         d.top1 = try d.take(32);
         d.snapshot_stride = cfg.layers * 3 * (2 * 512 + 2 * 4608);
@@ -205,9 +210,9 @@ pub const Draft = struct {
             try f.copy(d.rnn_input + 256 * 2, d.markov_embed + @as(usize, previous) * 256 * 2, 256 * 2);
             try f.copy(d.rnn_input + 512 * 2, d.normed + (step + 1) * 4608 * 2, 4608 * 2);
             try f.copy(d.rnn_input + (512 + 4608) * 2, d.f_rnn, 4608 * 2);
-            try f.product(d.rnn, d.rnn_input, d.projection, 1, .bf16);
+            try f.product(d.rnn, d.rnn_input, d.projection, 1, .f32);
             try d.go(f, .gates, .{ .x = 1 }, 256, .{ d.projection, d.rnn_bias, d.rnn_input, d.latent });
-            try f.product(d.fold, d.latent, d.correction, 1, .bf16);
+            try f.product(d.fold, d.latent, d.correction, 1, .f32);
             try d.go(f, .logits, .{ .x = ceil(d.fold.n, 256) }, 256, .{ d.base_logits + (step + 1) * d.fold.n * 2, d.correction, d.fold_bias, d.logits, int(d.fold.n) });
             const first = f.w.share.rank * d.fold.n;
             try f.k.go(.top1, f.stream, .{ .x = 1 }, 256, .{ d.logits, d.top1 + f.w.share.rank * 16, int(@min(d.fold.n, cfg.vocabulary - first)), int(first) });
