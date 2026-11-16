@@ -34,8 +34,9 @@ pub const Case = struct {
     ref: ?helper.Ref = null,
     stress: bool = false,
 
+    const vt = g.hooks(Case);
     pub fn kernel(t: *Case) g.Kernel {
-        return .{ .spec = .{ .name = if (t.local) "cuda inkling draft local block attention and merge" else "cuda inkling draft global block attention and merge", .accum = .f32, .depth = depth, .out = .bf16, .ops = 16, .served = &served, .tiles = .{ .{}, .{ .size = 24, .step = 6, .min = 6 }, .{ .size = 64, .min = 8 } }, .nan = .{ .stated = "visible V exceptions propagate; context before the anchor window is excluded" } }, .ctx = t, .vt = &g.hooks(Case) };
+        return .{ .spec = .{ .name = if (t.local) "cuda inkling draft local block attention and merge" else "cuda inkling draft global block attention and merge", .accum = .f32, .depth = depth, .out = .bf16, .ops = 16, .served = &served, .tiles = .{ .{}, .{ .size = 24, .step = 6, .min = 6 }, .{ .size = 64, .min = 8 } }, .nan = .{ .stated = "visible V exceptions propagate; context before the anchor window is excluded" } }, .ctx = t, .vt = &vt };
     }
     pub fn deinit(t: *Case) void {
         for ([_]*std.ArrayList(u16){ &t.q, &t.k, &t.v }) |p| p.deinit(t.rig.gpu.gpa);

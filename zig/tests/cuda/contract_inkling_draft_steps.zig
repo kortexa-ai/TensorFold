@@ -26,6 +26,7 @@ pub const Case = struct {
     latent: u64 = 0,
     control: bool = false,
 
+    const vt = g.hooks(Case);
     pub fn kernel(t: *Case) g.Kernel {
         const name = switch (t.form) {
             .add => "cuda inkling draft add",
@@ -33,7 +34,7 @@ pub const Case = struct {
             .gates => "cuda inkling draft recurrent gates",
             .logits => "cuda inkling draft folded logits",
         };
-        return .{ .spec = .{ .name = if (t.control) "control inkling draft missing final element" else name, .accum = .none, .depth = math.noSums, .out = if (t.form == .logits) .f32 else .bf16, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{ .size = 256 }, .{} } }, .ctx = t, .vt = &g.hooks(Case), .control = if (t.control) .shapes else null };
+        return .{ .spec = .{ .name = if (t.control) "control inkling draft missing final element" else name, .accum = .none, .depth = math.noSums, .out = if (t.form == .logits) .f32 else .bf16, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{ .size = 256 }, .{} } }, .ctx = t, .vt = &vt, .control = if (t.control) .shapes else null };
     }
     pub fn deinit(t: *Case) void {
         for (&t.host) |*h| h.deinit(t.rig.gpu.gpa);
@@ -205,3 +206,18 @@ pub const Set = struct {
         set.cases[0].rig.gpu.gpa.destroy(set);
     }
 };
+
+test "contract image: Inkling draft callback tables survive the constructor" {
+    var step: Case = .{ .rig = undefined, .form = .gates, .function = undefined, .ends = .{ .a = std.testing.allocator }, .shape = .{ .rows = 1, .n = 256, .k = 1 } };
+    const kernel = step.kernel();
+    try std.testing.expectEqual(@as(usize, 512), kernel.vt.count(kernel.ctx));
+    var norm: @import("contract_inkling_draft_norm.zig").Case = .{ .rig = undefined, .form = .query, .function = undefined, .ends = .{ .a = std.testing.allocator }, .shape = .{ .rows = 8, .n = 24, .k = 128 } };
+    const norm_kernel = norm.kernel();
+    try std.testing.expectEqual(@as(usize, 8 * 24 * 128), norm_kernel.vt.count(norm_kernel.ctx));
+    var copy: @import("contract_inkling_draft_copy.zig").Case = .{ .rig = undefined, .form = .snapshot, .function = undefined };
+    const copy_kernel = copy.kernel();
+    try std.testing.expectEqual(@as(usize, 0), copy_kernel.vt.count(copy_kernel.ctx));
+    var attention: @import("contract_inkling_draft_attention.zig").Case = .{ .rig = undefined, .attention = undefined, .merge = undefined, .local = false, .shape = .{ .rows = 1, .n = 24, .k = 8 } };
+    const attention_kernel = attention.kernel();
+    try std.testing.expectEqual(@as(usize, 8 * 24 * 128), attention_kernel.vt.count(attention_kernel.ctx));
+}

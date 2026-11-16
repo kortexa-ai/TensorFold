@@ -23,8 +23,9 @@ pub const Case = struct {
     history: u64 = 0,
     out: u64 = 0,
 
+    const vt = g.hooks(Case);
     pub fn kernel(t: *Case) g.Kernel {
-        return .{ .spec = .{ .name = if (t.form == .store) "cuda inkling draft BF16 context ring" else "cuda inkling verify convolution prefixes", .accum = .none, .depth = depth, .out = .raw, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{ .size = 256 }, .{} }, .nan = .{ .stated = "copies every BF16 payload bit, including nonfinite values" } }, .ctx = t, .vt = &g.hooks(Case) };
+        return .{ .spec = .{ .name = if (t.form == .store) "cuda inkling draft BF16 context ring" else "cuda inkling verify convolution prefixes", .accum = .none, .depth = depth, .out = .raw, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{ .size = 256 }, .{} }, .nan = .{ .stated = "copies every BF16 payload bit, including nonfinite values" } }, .ctx = t, .vt = &vt };
     }
     pub fn deinit(t: *Case) void {
         t.expected.deinit(t.rig.gpu.gpa);

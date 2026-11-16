@@ -33,13 +33,14 @@ pub const Case = struct {
     out: u64 = 0,
     cache: u64 = 0,
 
+    const vt = g.hooks(Case);
     pub fn kernel(t: *Case) g.Kernel {
         return .{ .spec = .{ .name = switch (t.form) {
             .mix => "cuda inkling draft feature mixture norm",
             .query => "cuda inkling draft query RMS RoPE",
             .key => "cuda inkling draft key RMS RoPE cache",
             .layer => "cuda inkling draft layer RMS norm",
-        }, .accum = .f32, .depth = depth, .out = .bf16, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{}, .{} }, .sums = .{ .f16 = 100, .bf16 = 0, .exact = false, .why = "normalized BF16 outputs conceal BF16 square-sum error at some orders" } }, .ctx = t, .vt = &g.hooks(Case) };
+        }, .accum = .f32, .depth = depth, .out = .bf16, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{}, .{} }, .sums = .{ .f16 = 100, .bf16 = 0, .exact = false, .why = "normalized BF16 outputs conceal BF16 square-sum error at some orders" } }, .ctx = t, .vt = &vt };
     }
     pub fn deinit(t: *Case) void {
         t.x.deinit(t.rig.gpu.gpa);
