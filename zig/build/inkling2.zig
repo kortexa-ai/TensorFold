@@ -17,4 +17,9 @@ pub fn tool(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     m.addImport("inkling2", module(b, target, optimize, cuda, core, lanes));
     const exe = b.addExecutable(.{ .name = "tf-inkling-cuda", .root_module = m });
     b.step("tf-inkling-cuda", "Native Inkling layer/checkpoint oracle dump").dependOn(&b.addInstallArtifact(exe, .{}).step);
+    const checks = b.createModule(.{ .root_source_file = b.path("zig/tests/cuda/inkling_contract_main.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    checks.addImport("cuda", cuda);
+    checks.addImport("core", core);
+    const contract = b.addExecutable(.{ .name = "tf-inkling-contract", .root_module = checks });
+    b.step("tf-inkling-contract", "Inkling shared CUDA contract gates and live limits").dependOn(&b.addInstallArtifact(contract, .{}).step);
 }
