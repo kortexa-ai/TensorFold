@@ -155,7 +155,7 @@ pub const Case = struct {
 pub const Set = struct {
     module: cuda.Module,
     cases: [5]Case,
-    norms: [3]@import("contract_inkling_draft_norm.zig").Case,
+    norms: [4]@import("contract_inkling_draft_norm.zig").Case,
     copies: [2]@import("contract_inkling_draft_copy.zig").Case,
     verify: cuda.Module,
     attentions: [2]@import("contract_inkling_draft_attention.zig").Case,
@@ -182,7 +182,7 @@ pub const Set = struct {
             try list.append(a, x.kernel());
         }
         for (&set.norms, 0..) |*x, i| {
-            x.* = .{ .rig = .{ .gpu = gpu, .s = s }, .form = @fromBackingInt(@intCast(i)), .function = try module.function(if (i == 0) "tf_ik_draft_mix" else "tf_ik_draft_prep"), .ends = .{ .a = a } };
+            x.* = .{ .rig = .{ .gpu = gpu, .s = s }, .form = @fromBackingInt(@intCast(i)), .function = try module.function(if (i == 0) "tf_ik_draft_mix" else if (i == 3) "tf_ik_draft_norm" else "tf_ik_draft_prep"), .ends = .{ .a = a } };
             try list.append(a, x.kernel());
         }
         for (&set.copies, 0..) |*x, i| {

@@ -19,4 +19,5 @@ pub const records = [_]CudaRecord{
     .{ .launch = .{ .name = "inkling draft swiglu", .symbol = "tf_ik_draft_swiglu", .image = "inkling2_draft", .threads = 256, .min_sm = 120 }, .usage = .{ none, none, none, .{ .regs = 16, .static = 0, .bound = 1024 }, .{ .regs = 16, .static = 0, .bound = 1024 } } },
     .{ .launch = .{ .name = "inkling draft gates", .symbol = "tf_ik_draft_gates", .image = "inkling2_draft", .threads = 256, .min_sm = 120 }, .usage = .{ none, none, none, .{ .regs = 19, .static = 0, .bound = 1024 }, .{ .regs = 19, .static = 0, .bound = 1024 } } },
     .{ .launch = .{ .name = "inkling draft logits", .symbol = "tf_ik_draft_logits", .image = "inkling2_draft", .threads = 256, .min_sm = 120 }, .usage = .{ none, none, none, .{ .regs = 14, .static = 0, .bound = 1024 }, .{ .regs = 14, .static = 0, .bound = 1024 } } },
+    .{ .launch = .{ .name = "inkling draft norm", .symbol = "tf_ik_draft_norm", .image = "inkling2_draft", .threads = 256, .min_sm = 120 }, .usage = .{ none, none, none, .{ .regs = 20, .static = 132, .bound = 1024 }, .{ .regs = 20, .static = 132, .bound = 1024 } } },
 };

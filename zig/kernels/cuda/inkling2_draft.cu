@@ -21,6 +21,15 @@ __device__ __constant__ float draft_frequency[64] = {
     0x1.3e47c80000000p-19f, 0x1.007bd80000000p-19f, 0x1.9d5ef20000000p-20f, 0x1.4d1c980000000p-20f
 };
 
+extern "C" __global__ void tf_ik_draft_norm(const bf16* x, const bf16* norm, bf16* out, int width) {
+    const int row = blockIdx.x, t = threadIdx.x;
+    float square = 0.f;
+    for (int c = t; c < width; c += blockDim.x) { const float v = f(x[(size_t)row * width + c]); square += v * v; }
+    const float scale = rsqrtf(sum(square) / width + 1e-6f);
+    for (int c = t; c < width; c += blockDim.x)
+        out[(size_t)row * width + c] = b(f(b(f(x[(size_t)row * width + c]) * scale)) * f(norm[c]));
+}
+
 extern "C" __global__ void tf_ik_draft_mix(const bf16* taps, const bf16* alpha, const bf16* norm,
                                          bf16* out, int stride) {
     const int row = blockIdx.x, t = threadIdx.x;

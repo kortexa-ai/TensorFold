@@ -7,7 +7,7 @@ const wt = @import("weights.zig");
 const Forward = @import("forward.zig").Forward;
 const int = @import("kernels.zig").int;
 const ceil = @import("kernels.zig").ceil;
-const Op = enum { mix, prep, store, attention, merge, add, swiglu, gates, logits };
+const Op = enum { mix, norm, prep, store, attention, merge, add, swiglu, gates, logits };
 const Layer = struct {
     context_norm: u64,
     input_norm: u64,
@@ -186,7 +186,7 @@ pub const Draft = struct {
         try f.copy(d.x, f.w.embed + @as(usize, anchor) * 4608 * 2, 4608 * 2);
         for (1..8) |r| try f.copy(d.x + r * 4608 * 2, d.mask, 4608 * 2);
         for (d.layers, 0..) |l, i| {
-            try f.k.go(.norm, f.stream, .{ .x = 8 }, 256, .{ d.x, l.input_norm, d.normed, @as(i32, 4608) });
+            try d.go(f, .norm, .{ .x = 8 }, 256, .{ d.x, l.input_norm, d.normed, @as(i32, 4608) });
             try f.product(l.q, d.normed, d.q, 8, .bf16);
             try f.product(l.k, d.normed, d.k, 8, .bf16);
             try f.product(l.v, d.normed, d.v, 8, .bf16);
@@ -196,13 +196,13 @@ pub const Draft = struct {
             try d.go(f, .attention, .{ .x = 24, .y = 32 }, 256, .{ d.q, l.cache_k, l.cache_v, d.partials, int(f.s.pos), @as(i32, 24), @as(i32, 4), int(l.capacity), @as(i32, @intFromBool(dc.local(i))) });
             try d.go(f, .merge, .{ .x = 24, .y = 8 }, 128, .{ d.partials, d.attention, @as(i32, 24) });
             try d.reduce(f, l.o, d.attention);
-            try f.k.go(.norm, f.stream, .{ .x = 8 }, 256, .{ d.x, l.post_norm, d.normed, @as(i32, 4608) });
+            try d.go(f, .norm, .{ .x = 8 }, 256, .{ d.x, l.post_norm, d.normed, @as(i32, 4608) });
             try f.product(l.gate, d.normed, d.gate, 8, .bf16);
             try f.product(l.up, d.normed, d.up, 8, .bf16);
             try d.go(f, .swiglu, .{ .x = 288 }, 256, .{ d.gate, d.up, d.hidden, @as(i32, 8 * 9216) });
             try d.reduce(f, l.down, d.hidden);
         }
-        try f.k.go(.norm, f.stream, .{ .x = 8 }, 256, .{ d.x, d.norm, d.normed, @as(i32, 4608) });
+        try d.go(f, .norm, .{ .x = 8 }, 256, .{ d.x, d.norm, d.normed, @as(i32, 4608) });
         try f.product(f.w.head, d.normed, d.base_logits, 8, .bf16);
         try f.zero(d.rnn_input, 256 * 2);
         var previous = anchor;

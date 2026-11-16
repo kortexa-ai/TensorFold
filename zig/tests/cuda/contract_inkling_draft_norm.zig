@@ -6,11 +6,12 @@ const math = @import("contract_moss_image_ref.zig");
 const c = math.c;
 const g = math.g;
 const R = math.Range;
-const Form = enum { mix, query, key };
+const Form = enum { mix, query, key, layer };
 const served = [_][2]c.Shape{
     .{ .{ .rows = 8, .n = 4608, .k = 4608 }, .{ .rows = 256, .n = 4608, .k = 4608 } },
     .{ .{ .rows = 8, .n = 24, .k = 128 }, .{ .rows = 1, .n = 24, .k = 128 } },
     .{ .{ .rows = 8, .n = 4, .k = 128 }, .{ .rows = 256, .n = 4, .k = 128 } },
+    .{ .{ .rows = 8, .n = 4608, .k = 4608 }, .{ .rows = 1, .n = 4608, .k = 4608 } },
 };
 fn depth(s: c.Shape) usize {
     return s.k + 16;
@@ -37,6 +38,7 @@ pub const Case = struct {
             .mix => "cuda inkling draft feature mixture norm",
             .query => "cuda inkling draft query RMS RoPE",
             .key => "cuda inkling draft key RMS RoPE cache",
+            .layer => "cuda inkling draft layer RMS norm",
         }, .accum = .f32, .depth = depth, .out = .bf16, .served = &served[@backingInt(t.form)], .tiles = .{ .{ .size = 8 }, .{}, .{} }, .sums = .{ .f16 = 100, .bf16 = 0, .exact = false, .why = "normalized BF16 outputs conceal BF16 square-sum error at some orders" } }, .ctx = t, .vt = &g.hooks(Case) };
     }
     pub fn deinit(t: *Case) void {
@@ -46,10 +48,10 @@ pub const Case = struct {
         t.rig.deinit();
     }
     fn width(t: *const Case) usize {
-        return if (t.form == .mix) 4608 else 128;
+        return if (t.form == .mix or t.form == .layer) 4608 else 128;
     }
     fn groups(t: *const Case) usize {
-        return if (t.form == .mix) t.shape.rows else t.shape.rows * t.shape.n;
+        return if (t.form == .mix or t.form == .layer) t.shape.rows else t.shape.rows * t.shape.n;
     }
     pub fn count(t: *Case) usize {
         return t.groups() * t.width() * (if (t.form == .key) @as(usize, 2) else 1);
@@ -80,13 +82,15 @@ pub const Case = struct {
         var args: cuda.Args = .{};
         if (t.form == .mix) {
             inline for (.{ t.dev[0], t.dev[2], t.dev[1], t.out, @as(i32, @intCast(t.shape.rows * 4608)) }) |v| args.add(v);
+        } else if (t.form == .layer) {
+            inline for (.{ t.dev[0], t.dev[1], t.out, @as(i32, 4608) }) |v| args.add(v);
         } else {
             inline for (.{ t.dev[0], t.dev[1], t.out, t.cache, @as(i32, @intCast(t.shape.n)), @as(i32, 524288), @as(i32, @intCast(t.shape.rows)) }) |v| args.add(v);
         }
-        try cuda.launch.launch(t.function, .{ .grid = .{ .x = if (t.form == .mix) @intCast(t.shape.rows) else @intCast(t.shape.n), .y = if (t.form == .mix) 1 else @intCast(t.shape.rows) }, .block = .{ .x = if (t.form == .mix) 256 else 128 } }, t.rig.s, &args);
+        try cuda.launch.launch(t.function, .{ .grid = .{ .x = if (t.form == .mix or t.form == .layer) @intCast(t.shape.rows) else @intCast(t.shape.n), .y = if (t.form == .mix or t.form == .layer) 1 else @intCast(t.shape.rows) }, .block = .{ .x = if (t.form == .mix or t.form == .layer) 256 else 128 } }, t.rig.s, &args);
     }
     fn value(t: *const Case, group: usize, col: usize) f64 {
-        if (t.form != .mix) return c.fromBf16(t.x.items[group * 128 + col]);
+        if (t.form != .mix) return c.fromBf16(t.x.items[group * t.width() + col]);
         var v: f64 = 0;
         for (0..8) |tap| v += @as(f64, c.fromBf16(t.x.items[(tap * t.shape.rows + group) * 4608 + col])) * c.fromBf16(t.alpha[tap]);
         return v;
@@ -128,7 +132,7 @@ pub const Case = struct {
             for (normalized, 0..) |value_, col| {
                 const at = group * w + col;
                 var range = value_;
-                if (t.form != .mix) {
+                if (t.form == .query or t.form == .key) {
                     const frequency: f32 = @floatCast(std.math.pow(f64, 1000000, -2 * @as(f64, @floatFromInt(col % 64)) / 128));
                     const angle: f32 = @as(f32, @floatFromInt(524288 + group / t.shape.n)) * frequency;
                     const cosine = R.of(@cos(@as(f64, angle))).fp32(2);
@@ -173,7 +177,7 @@ pub const Case = struct {
                 v.* = if (t.form == .mix) x * inv * n else math.bf(math.bf(x * inv) * n);
             }
             for (0..w) |col| {
-                const v = math.bf(if (t.form == .mix) normalized[col] else t.rotated(group, col, normalized));
+                const v = math.bf(if (t.form == .mix or t.form == .layer) normalized[col] else t.rotated(group, col, normalized));
                 out[group * w + col] = v;
                 if (t.form == .key) out[t.groups() * w + (((524288 + group / t.shape.n) % t.shape.rows) * t.shape.n + group % t.shape.n) * w + col] = v;
             }

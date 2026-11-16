@@ -68,6 +68,8 @@ const valid = [_]Case{
     .{ .name = "TF_PROMPT_INTERMEDIATE", .raw = "0", .n = 0 },
     .{ .name = "TF_PROMPT_INTERMEDIATE", .raw = "1", .n = 1 },
     .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
+    .{ .name = "TF_INKLING_VERIFY_CHECK", .raw = "0", .n = 0 },
+    .{ .name = "TF_INKLING_VERIFY_CHECK", .raw = "1", .n = 1 },
     .{ .name = "TF_INKLING_RANK", .raw = "0", .n = 0 },
     .{ .name = "TF_INKLING_RANK", .raw = "1", .n = 1 },
     .{ .name = "TF_INKLING_WORLD", .raw = "1", .n = 1 },
