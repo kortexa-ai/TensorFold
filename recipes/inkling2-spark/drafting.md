@@ -71,10 +71,43 @@ accepted windows where the lane engine does not invoke rollback.
 `TF_INKLING_VERIFY_CHECK=1` is a slow diagnostic. It serially replays each
 verified input and compares the target tokens, FP32 logits, BF16 final hidden,
 all layer K/V rows and convolution prefix histories byte for byte. Leave it
-off for performance measurements. The 8K canary checks prose and code against
-the frozen plain target's complete 64-token arrays, including repeated requests.
+off for performance measurements. A canary with an 8K allocation checks short prose and code against
+the frozen plain target's complete 64-token arrays. Closing the client during
+decode also leaves the next fresh request's complete output unchanged.
 
 The focused CUDA contract runner covers the new draft and verification
 operators through the shared G1–G5 gates and live compile limits. These checks
 are specific to GB10/SM121; they do not establish coverage of another GPU or
 the complete CUDA backend.
+
+## Measured performance
+
+Two GB10s, a 524288-token allocation, fresh process per A-B-B-A arm, greedy
+256-token replies, short/8K warmups, fresh KV and no prompt caching:
+
+| Request | Plain tok/s | DSpark tok/s | Change | Accepted proposals |
+|---|---:|---:|---:|---:|
+| Short prose (33 inputs) | 16.59 | 18.33 | +10.5% | 61.8% |
+| Code (48) | 16.59 | 19.76 | +19.1% | 69.0% |
+| 8K (8086) | 11.77 | 12.37 | +5.1% | 61.1% |
+| 32K (32194) | 7.47 | 6.74 | −9.8% | 59.5% |
+
+All 4096 generated token IDs match the plain target across the four arms.
+Short-prompt prefill rates fall about 5.1%; 8K and 32K prefill stay within 1%.
+Minimum observed host availability is 6.17 GiB. Median SM clocks differ by at
+most 0.21%, with no active clock-event flags. The draft mode produces
+1.67–1.88 output tokens per verification round, using the API's counter definition.
+
+The fixed promotion bar requires at least 10% short/code/8K decode gain and no
+regression above 3% in another measured decode or prefill cell. This version
+fails that bar. Drafting stays opt-in, and the selected plain profile is
+preserved. Use plain decoding when long-context throughput is the priority.
+Verification still runs ordinary attention separately for every proposed row;
+that work remains a target for long-context optimization.
+
+[Full request bodies, input/output IDs, samples, memory and acceptance](draft-measurements.json)
+pin target source `0b78fd235ff268cc136554e6d6ad8f0b7761579d` and draft source
+`7511f80febdd58d06387ed05c5ee0755c383fd66`. The draft executable SHA256 is
+`6331bf90e797cdeccd8c88b7933b110b0b8a935e79b305847be5271e5e4cf449`.
+The 512K allocation demonstrates capacity through the measured workloads;
+full 512K prefill speed and retrieval quality remain unqualified.

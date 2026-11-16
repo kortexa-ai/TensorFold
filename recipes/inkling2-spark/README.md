@@ -2,9 +2,12 @@
 
 This experimental native TensorFold profile uses the published mixed K2/K3
 EXL3 checkpoint, whole-expert EP2, attention TP2, and exact BF16 KV storage.
-It serves one greedy text request at a time. Vision, drafts, structured output,
+It serves one greedy text request at a time. Vision, structured output,
 sampling, and prompt caching are not qualified. The native family rejects
 unsupported requests. Python is used only to download files and prepare metadata.
+The optional [bundled DSpark drafter](drafting.md) is available on the
+`kortexa-ai/inkling2-draft` branch, with its own validation and measurements.
+The plain launch remains the default.
 
 You need two Linux ARM64 DGX Sparks, NVIDIA Container Toolkit, Docker, Python 3,
 and a working network between them. The direct ConnectX connection should have

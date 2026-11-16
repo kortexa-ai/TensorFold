@@ -15,6 +15,15 @@ assert r['rank'] == int(sys.argv[3]) and r['world'] == 2
 assert r['revision'] == '05c6cd0dff9df5bf20b10419c663a1e2adc7eb64'
 assert (p / 'config.json').is_file(), 'Run download.sh to completion first'
 PY
+drafts=(--no-drafts)
+[[ ${DRAFTS:-0} == 0 || ${DRAFTS:-0} == 1 ]] || { echo 'DRAFTS must be 0 or 1.' >&2; exit 2; }
+if [[ ${DRAFTS:-0} == 1 ]]; then
+    drafts=()
+    [[ -s $model/auxiliary/mtp.safetensors && -s $model/auxiliary/dspark-fold.safetensors ]] || {
+        echo 'Run download.sh with --drafts for this model directory before starting the draft pair.' >&2
+        exit 2
+    }
+fi
 gpu=${GPU_UUID:-$(nvidia-smi --query-gpu=uuid --format=csv,noheader)}
 [[ $gpu == GPU-* && $gpu != *$'\n'* ]] || { echo 'Set GPU_UUID to one GB10.' >&2; exit 2; }
 [[ $(nvidia-smi -i "$gpu" --query-gpu=name --format=csv,noheader) == 'NVIDIA GB10' ]] || exit 2
@@ -43,9 +52,6 @@ if docker container inspect "$name" >/dev/null 2>&1; then
     echo "Container $name already exists; inspect and stop its owning process before starting again." >&2
     exit 2
 fi
-drafts=(--no-drafts)
-[[ ${DRAFTS:-0} == 0 || ${DRAFTS:-0} == 1 ]] || { echo 'DRAFTS must be 0 or 1.' >&2; exit 2; }
-[[ ${DRAFTS:-0} == 0 ]] || drafts=()
 rdma=()
 [[ ! -d /dev/infiniband ]] || rdma=(--device /dev/infiniband)
 exec docker run --rm --name "$name" --network host --ipc host --gpus "device=$gpu" \
