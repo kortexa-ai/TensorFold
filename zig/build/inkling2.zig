@@ -9,6 +9,15 @@ pub fn host(b: *std.Build, m: *std.Build.Module, all: *std.Build.Step) void {
     const run = b.addRunArtifact(b.addTest(.{ .root_module = m }));
     b.step("test-inkling2-host", "Inkling geometry, exact cache accounting and native argument layouts").dependOn(&run.step);
     all.dependOn(&run.step);
+    const fixtures = b.step("test-inkling2-contract-host", "Inkling contract callback lifetime and FP64 exceptional classes");
+    inline for (.{ "steps", "norm" }) |name| {
+        const checks = b.createModule(.{ .root_source_file = b.path("zig/tests/cuda/contract_inkling_draft_" ++ name ++ ".zig"), .target = b.graph.host, .link_libc = true });
+        checks.addImport("cuda", m.import_table.get("cuda").?);
+        checks.addImport("core", m.import_table.get("core").?);
+        const check = b.addRunArtifact(b.addTest(.{ .root_module = checks }));
+        fixtures.dependOn(&check.step);
+        all.dependOn(&check.step);
+    }
 }
 
 pub fn tool(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, core: *std.Build.Module, lanes: *std.Build.Module) void {
