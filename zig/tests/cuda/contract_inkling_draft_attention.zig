@@ -6,11 +6,11 @@ const helper = @import("contract_attn.zig");
 const c = core.contract.spec;
 const g = core.contract.gates;
 const served = [_]c.Shape{
-    .{ .rows = 1, .n = 24, .k = 8 },      .{ .rows = 1, .n = 24, .k = 65 },
-    .{ .rows = 1, .n = 24, .k = 1023 },   .{ .rows = 1, .n = 24, .k = 1024 },
-    .{ .rows = 1, .n = 24, .k = 1032 },   .{ .rows = 1, .n = 24, .k = 1280 },
-    .{ .rows = 1, .n = 24, .k = 8192 },   .{ .rows = 1, .n = 24, .k = 32768 },
-    .{ .rows = 1, .n = 24, .k = 524288 },
+    .{ .rows = 8, .n = 24, .k = 8 },      .{ .rows = 8, .n = 24, .k = 65 },
+    .{ .rows = 8, .n = 24, .k = 1023 },   .{ .rows = 8, .n = 24, .k = 1024 },
+    .{ .rows = 8, .n = 24, .k = 1032 },   .{ .rows = 8, .n = 24, .k = 1280 },
+    .{ .rows = 8, .n = 24, .k = 8192 },   .{ .rows = 8, .n = 24, .k = 32768 },
+    .{ .rows = 8, .n = 24, .k = 524288 },
 };
 fn depth(s: c.Shape) usize {
     return s.k + 128;
@@ -44,12 +44,12 @@ pub const Case = struct {
         if (t.ref) |*r| r.deinit();
         t.rig.deinit();
     }
-    // Shape.rows counts one checkpoint block; every physical launch has its fixed eight query rows.
+    // The shared stress gate may request fewer rows; its fixture still exercises the fixed eight-query block.
     pub fn count(t: *Case) usize {
         return 8 * t.shape.n * 128;
     }
     pub fn prepare(t: *Case, shape: c.Shape, fill: g.Fill, seed: u64) !bool {
-        if (shape.rows != 1 or shape.n < 6 or shape.n % 6 != 0 or shape.k < 8) return false;
+        if (shape.rows == 0 or shape.rows > 8 or shape.n < 6 or shape.n % 6 != 0 or shape.k < 8) return false;
         t.rig.reset();
         if (t.ref) |*r| r.deinit();
         t.ref = null;

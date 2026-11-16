@@ -42,17 +42,17 @@ pub const Case = struct {
         t.rig.deinit();
     }
     pub fn count(t: *Case) usize {
-        return if (t.form == .gates) 512 else t.shape.rows * t.shape.n;
+        return if (t.form == .gates) t.shape.rows * 512 else t.shape.rows * t.shape.n;
     }
     pub fn prepare(t: *Case, shape: c.Shape, fill: g.Fill, seed: u64) !bool {
-        if (shape.rows == 0 or shape.rows > 8 or shape.n == 0 or (t.form == .gates and (shape.rows != 1 or shape.n != 256))) return false;
+        if (shape.rows == 0 or shape.rows > 8 or shape.n == 0 or (t.form == .gates and shape.n != 256)) return false;
         t.rig.reset();
         t.shape = shape;
         const a = t.rig.gpu.gpa;
         const n = t.count();
         var rng = std.Random.DefaultPrng.init(seed);
         for (&t.host, 0..) |*h, j| {
-            const size = if (t.form == .gates) (if (j < 2) @as(usize, 768) else 256) else n;
+            const size = if (t.form == .gates) (if (j < 2) @as(usize, 768) else 256) * shape.rows else n;
             try h.resize(a, size);
             for (h.items) |*v| v.* = math.bf((rng.random().float(f32) - 0.5) * 16);
             if (fill == .nonfinite) {
@@ -75,15 +75,23 @@ pub const Case = struct {
                 t.inputs[j] = try t.rig.input(std.mem.sliceAsBytes(data));
             }
         }
-        t.out = try t.rig.output((if (t.form == .gates) @as(usize, 256) else n) * (if (t.form == .logits) @as(usize, 4) else 2));
-        if (t.form == .gates) t.latent = try t.rig.output(256 * 2);
+        t.out = try t.rig.output((if (t.form == .gates) t.shape.rows * 256 else n) * (if (t.form == .logits) @as(usize, 4) else 2));
+        if (t.form == .gates) t.latent = try t.rig.output(t.shape.rows * 256 * 2);
         try t.ends.size(n);
         return true;
     }
     pub fn run(t: *Case) !void {
         const n = t.shape.rows * t.shape.n;
         var args: cuda.Args = .{};
-        if (t.form == .add or t.form == .gates) try t.rig.gpu.d.check(t.rig.gpu.d.api.cuMemcpyDtoDAsync_v2(t.out, t.inputs[if (t.form == .add) 0 else 2], (if (t.form == .add) n else 256) * 2, t.rig.s.handle), "draft contract seed");
+        if (t.form == .add or t.form == .gates) try t.rig.gpu.d.check(t.rig.gpu.d.api.cuMemcpyDtoDAsync_v2(t.out, t.inputs[if (t.form == .add) 0 else 2], (if (t.form == .add) n else t.shape.rows * 256) * 2, t.rig.s.handle), "draft contract seed");
+        if (t.form == .gates) {
+            for (0..t.shape.rows) |row| {
+                var call: cuda.Args = .{};
+                inline for (.{ t.inputs[0] + row * 768 * 4, t.inputs[1] + row * 768 * 2, t.out + row * 256 * 2, t.latent + row * 256 * 2 }) |v| call.add(v);
+                try cuda.launch.launch(t.function, .{ .grid = .{ .x = 1 }, .block = .{ .x = 256 } }, t.rig.s, &call);
+            }
+            return;
+        }
         switch (t.form) {
             .add => {
                 args.add(t.out);
@@ -132,10 +140,13 @@ pub const Case = struct {
                 },
                 .gates => {
                     const j = i % 256;
-                    const gate = R.of(x[j]).add(R.of(y[j])).fp32(0.5).bf16().up(sigmoid).fp32(5).bf16();
-                    const candidate = R.of(x[256 + j]).add(R.of(y[256 + j])).fp32(0.5).bf16().up(math.tanh).fp32(2).bf16();
-                    if (i >= 256) r = R.of(x[512 + j]).add(R.of(y[512 + j])).fp32(0.5).bf16().up(math.tanh).fp32(2).bf16() else {
-                        const kept = gate.mul(R.of(z[j])).fp32(0.5).bf16();
+                    const state_size = t.shape.rows * 256;
+                    const group = (i % state_size) / 256;
+                    const offset = group * 768;
+                    const gate = R.of(x[offset + j]).add(R.of(y[offset + j])).fp32(0.5).bf16().up(sigmoid).fp32(5).bf16();
+                    const candidate = R.of(x[offset + 256 + j]).add(R.of(y[offset + 256 + j])).fp32(0.5).bf16().up(math.tanh).fp32(2).bf16();
+                    if (i >= state_size) r = R.of(x[offset + 512 + j]).add(R.of(y[offset + 512 + j])).fp32(0.5).bf16().up(math.tanh).fp32(2).bf16() else {
+                        const kept = gate.mul(R.of(z[group * 256 + j])).fp32(0.5).bf16();
                         const inverse: R = .{ .lo = 1 - gate.hi, .hi = 1 - gate.lo };
                         const blend = inverse.fp32(0.5).bf16().mul(candidate).fp32(0.5).bf16();
                         r = kept.add(blend).fp32(0.5).bf16();

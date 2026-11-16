@@ -106,9 +106,22 @@ pub const Case = struct {
         const w = t.width();
         const normalized = try a.alloc(R, w);
         defer a.free(normalized);
+        const center_norm = try a.alloc(f64, w);
+        defer a.free(center_norm);
         const values = try a.alloc(R, w);
         defer a.free(values);
         for (0..t.groups()) |group| {
+            var center_square: f64 = 0;
+            for (0..w) |col| {
+                const x = t.value(group, col);
+                center_square += x * x;
+            }
+            const center_inv = 1 / @sqrt(center_square / @as(f64, @floatFromInt(w)) + 1e-6);
+            for (center_norm, 0..) |*v, col| {
+                const x = t.value(group, col);
+                const norm = c.fromBf16(t.norm.items[col]);
+                v.* = if (t.form == .mix) x * center_inv * norm else math.bf(math.bf(x * center_inv) * norm);
+            }
             var squares = R.of(0);
             for (values, 0..) |*value_, col| {
                 const x = t.value(group, col);
@@ -143,7 +156,7 @@ pub const Case = struct {
                     range = value_.mul(cosine).fp32(0.5).add(rotate.mul(sine).fp32(0.5)).fp32(0.5);
                 }
                 range = range.bf16();
-                const center = if (range.lo == range.hi) range.lo else (range.lo + range.hi) / 2;
+                const center = math.bf(if (t.form == .query or t.form == .key) t.rotated(group, col, center_norm) else center_norm[col]);
                 t.ends.put(want, mag, at, center, range);
                 if (t.form == .key) {
                     const row = group / t.shape.n;
