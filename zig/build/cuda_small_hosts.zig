@@ -2,6 +2,7 @@
 const std = @import("std");
 
 pub fn steps(b: *std.Build, host: std.Build.ResolvedTarget, cuda: *std.Build.Module, core: *std.Build.Module, lanes: *std.Build.Module, all: *std.Build.Step) void {
+    @import("inkling2.zig").host(b, @import("inkling2.zig").module(b, host, .debug, cuda, core, lanes), all);
     @import("spark25.zig").host(b, @import("spark25.zig").module(b, host, .debug, cuda, core, lanes), all);
     @import("lfm2_moe_cuda.zig").host(b, @import("lfm2_moe_cuda.zig").module(b, host, .debug, cuda, core, lanes), all);
     const dense = @import("cuda_dense.zig").module(b, host, .debug, cuda, core, lanes);

@@ -24,6 +24,11 @@ pub fn image(name: []const u8) error{UnknownContractImage}![]const u8 {
     inline for (.{ "l2pf", "l2pace" }) |n|
         if (std.mem.eql(u8, name, n)) return @field(kk, n);
     if (std.mem.eql(u8, name, "window_rows")) return kk.window_rows;
+    if (std.mem.eql(u8, name, "inkling2")) return kk.inkling2;
+    if (std.mem.eql(u8, name, "inkling2_dense")) return kk.inkling2_dense;
+    if (std.mem.eql(u8, name, "inkling2_verify")) return kk.inkling2_verify;
+    if (std.mem.eql(u8, name, "inkling2_draft")) return kk.inkling2_draft;
+    if (std.mem.eql(u8, name, "drama3_staged_gemv")) return kk.drama3_staged_gemv;
     if (std.mem.eql(u8, name, "joint_schema")) return kk.joint_schema;
     if (std.mem.eql(u8, name, "fp8_experts")) return kk.fp8_experts;
     if (std.mem.eql(u8, name, "mla")) return kk.mla;
@@ -37,6 +42,10 @@ pub fn image(name: []const u8) error{UnknownContractImage}![]const u8 {
 
 /// Gate 5 on this GPU, each record against the loaded function; `only`: the launches so named, no offline audit.
 pub fn live(gpu: check.Gpu, only: []const []const u8) !usize {
+    return liveWith(gpu, only, image);
+}
+
+pub fn liveWith(gpu: check.Gpu, only: []const []const u8, comptime resolve: anytype) !usize {
     var n: usize = 0;
     if (only.len == 0) n = try registry.checkCuda(gpu.gpa, &registry.all_cuda, false);
     if (only.len == 0) std.debug.print("{s} limits: {d} registered CUDA launches against sm_80/86/89/120/121, {d} problems\n", .{ if (n == 0) "PASS" else "FAIL", registry.all_cuda.len, n });
@@ -65,7 +74,7 @@ pub fn live(gpu: check.Gpu, only: []const []const u8) !usize {
         } else continue;
         if (!control and t.sm < r.launch.min_sm) continue;
         if (!control and at != null and registry.targetDecision(r, t, r.usage[at.?]) != .applicable) continue;
-        const bytes = image(r.launch.image) catch |err| {
+        const bytes = resolve(r.launch.image) catch |err| {
             std.debug.print("FAIL kernel-contract: unknown image name: {s}\n", .{r.launch.image});
             return err;
         };

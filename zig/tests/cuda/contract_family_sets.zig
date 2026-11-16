@@ -21,6 +21,10 @@ pub const Sets = struct {
     shared_down: *SharedDown,
     prompt: *Prompt,
     joint_schema: *@import("contract_joint_schema.zig").Set,
+    inkling: ?*@import("contract_inkling_attention.zig").Set,
+    inkling_draft: ?*@import("contract_inkling_draft_steps.zig").Set,
+    inkling_verify: ?*@import("contract_inkling_verify.zig").Set,
+    inkling_dense: ?*@import("contract_inkling_dense.zig").Set,
 
     /// Each set's kernels appended to `list`, in this order.
     pub fn init(gpu: check.Gpu, s: cuda.Stream, a: std.mem.Allocator, list: *std.ArrayList(g.Kernel), affine4: *cuda.qlinear.Affine4Kernels, cap: u32) !Sets {
@@ -58,7 +62,17 @@ pub const Sets = struct {
         errdefer prompt.deinit();
         try prompt.append(cap, a, list);
         const joint_schema = try @import("contract_joint_schema.zig").Set.init(gpu, s, a, list);
+        errdefer joint_schema.deinit();
+        const inkling = try @import("contract_inkling_attention.zig").Set.init(gpu, s, a, list);
+        errdefer if (inkling) |x| x.deinit();
+        const inkling_dense = try @import("contract_inkling_dense.zig").Set.init(gpu, s, a, list);
+        errdefer if (inkling_dense) |x| x.deinit();
+        const inkling_verify = try @import("contract_inkling_verify.zig").Set.init(gpu, s, a, list);
+        errdefer if (inkling_verify) |x| x.deinit();
+        const inkling_draft = try @import("contract_inkling_draft_steps.zig").Set.init(gpu, s, a, list);
         return .{
+            .inkling_draft = inkling_draft,
+            .inkling_verify = inkling_verify,
             .gpa = gpu.gpa,
             .bf16_experts = bf16_experts,
             .pocket = pocket,
@@ -71,10 +85,16 @@ pub const Sets = struct {
             .shared_down = shared_down,
             .prompt = prompt,
             .joint_schema = joint_schema,
+            .inkling = inkling,
+            .inkling_dense = inkling_dense,
         };
     }
 
     pub fn deinit(sets: Sets) void {
+        if (sets.inkling_draft) |x| x.deinit();
+        if (sets.inkling_verify) |x| x.deinit();
+        if (sets.inkling_dense) |x| x.deinit();
+        if (sets.inkling) |x| x.deinit();
         sets.joint_schema.deinit();
         sets.prompt.deinit();
         sets.gpa.destroy(sets.prompt);

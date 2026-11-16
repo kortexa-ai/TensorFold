@@ -1,0 +1,13 @@
+*
+!build.zig
+!build.zig.zon
+!.zig-version
+!zig/
+!tools/release/
+!packaging/
+!web/
+!LICENSE
+!LICENSES/
+!NOTICE
+!THIRD_PARTY_NOTICES.md
+!recipes/inkling2-spark/Dockerfile

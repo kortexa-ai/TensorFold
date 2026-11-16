@@ -53,6 +53,10 @@ const torch_ops = &[_][]const u8{ "-O3", "--fmad=false", "--ftz=false" };
 const glue = &[_][]const u8{ "-O3", "--fmad=false", "--ftz=false", "--prec-div=true", "--prec-sqrt=true" };
 
 pub const kernels = [_]Kernel{
+    .{ .name = "inkling2", .flags = glue, .min_sm = 120 },
+    .{ .name = "inkling2_dense", .flags = glue, .min_sm = 120 },
+    .{ .name = "inkling2_verify", .flags = glue, .min_sm = 120 },
+    .{ .name = "inkling2_draft", .flags = glue, .min_sm = 120 },
     .{ .name = "qwen4_projection", .flags = glue },
     .{ .name = "qwen4_gdn", .flags = glue },
     .{ .name = "qwen4_hc", .flags = glue },

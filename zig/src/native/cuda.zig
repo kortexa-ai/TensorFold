@@ -483,16 +483,15 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
 }
 const toGib = family_memory.toGib;
 
-/// The Info `openWith` serves: the host's fields, then what the family declares (its reasoning block).
-fn familyInfo(comptime F: type, host: api.Info) api.Info {
-    var info = host;
-    info.reasoning = reasoning(F);
-    return info;
-}
+const familyInfo = @import("cuda_family_info.zig").apply;
+const reasoning = @import("cuda_family_info.zig").reasoning;
 
-/// The family's Info.reasoning: false when it declares `pub const reasoning = false` (no reasoning block).
-fn reasoning(comptime F: type) bool {
-    return if (@hasDecl(F, "reasoning")) F.reasoning else true;
+test "CUDA Inkling metadata: greedy-only reaches the served API" {
+    const info = familyInfo(@import("inkling2_cuda").native, .{ .context_window = 524288 });
+    try std.testing.expect(info.greedy_only);
+    try std.testing.expectEqual(@as(u64, 524288), info.context_window);
+    try std.testing.expect(familyInfo(struct {}, .{ .greedy_only = true }).greedy_only);
+    try std.testing.expect(!familyInfo(struct {}, .{}).greedy_only);
 }
 
 test "a CUDA family declares replies without reasoning with `pub const reasoning = false`; only dots.mocr does" {
