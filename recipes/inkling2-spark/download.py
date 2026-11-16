@@ -21,6 +21,13 @@ LICENSES = {
     "LICENSE": {"bytes": 11346, "sha256": "1495e1e757ef4d0925a2350563cf5754bb23c51701a8ec4fb3c5cdcbedae6747"},
     "NOTICE": {"bytes": 325, "sha256": "e71ff351f806c4f6ebd25f3c4ba9840ecd47283dc5ffcbd97829c59268369a47"},
 }
+DRAFT_FILES = {
+    "auxiliary/dspark-fold.safetensors": {
+        "revision": "f82bc6f03ec8c61a1d3afd155c820b71bf05bf7c",
+        "bytes": 103326656,
+        "sha256": "60971cba33c7344d48d75e3a7cc5fda6e5496ec6508389a57db0952b8fba5bb5",
+    },
+}
 
 
 def digest(path):
@@ -69,6 +76,7 @@ def main():
     p.add_argument("--reuse", type=Path, action="append", default=[],
                    help="Optional existing copy of the same immutable pack; files are verified before reuse")
     p.add_argument("--offline", action="store_true")
+    p.add_argument("--drafts", action="store_true", help="Also verify the bundled BF16 DSpark and folded head")
     args = p.parse_args()
     root = args.directory.expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -100,12 +108,14 @@ def main():
             for batch in checkpoint["layers"][str(index)]["batches"]:
                 if args.rank * 192 <= batch["start"] < (args.rank + 1) * 192:
                     files.add(batch["file"])
+        if args.drafts:
+            files.update(("auxiliary/mtp.safetensors", *DRAFT_FILES))
 
         def fetch(name):
             if name.startswith("/") or ".." in Path(name).parts or "\\" in name:
                 raise ValueError("Unsafe manifest path")
             target = root / name
-            info = LICENSES.get(name) or checkpoint["files"][name]
+            info = DRAFT_FILES.get(name) or LICENSES.get(name) or checkpoint["files"][name]
             sha, size = info["sha256"], info["bytes"]
             if target.exists():
                 if target.stat().st_size != size or digest(target) != sha:
@@ -124,7 +134,8 @@ def main():
                 raise FileNotFoundError(name)
             temp = target.with_name(target.name + "." + sha[:12] + ".part")
             h = hashlib.sha256()
-            with urllib.request.urlopen(URL + name, timeout=120) as source, temp.open("wb") as output:
+            url = f"https://huggingface.co/{REPOSITORY}/resolve/{info['revision']}/" if name in DRAFT_FILES else URL
+            with urllib.request.urlopen(url + name, timeout=120) as source, temp.open("wb") as output:
                 while block := source.read(8 * 1024**2):
                     h.update(block)
                     output.write(block)

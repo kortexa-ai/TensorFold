@@ -86,6 +86,25 @@ pub const Forward = struct {
         try f.d.check(f.d.api.cuMemcpyDtoDAsync_v2(dst, src, bytes, f.stream.handle), "inkling copy");
     }
 
+    pub fn embedding(f: *Forward, ids: []const u32, out: u64) !void {
+        const row_bytes = cfg.hidden * 2;
+        const first = f.w.embed_first orelse {
+            try cuda.copy_source.enqueue(f.d, f.s.ids, std.mem.sliceAsBytes(ids), f.stream);
+            return f.k.go(.embed, f.stream, .{ .x = ceil(ids.len * cfg.hidden, 256) }, 256, .{ f.s.ids, f.w.embed, out, int(ids.len), @as(i32, cfg.hidden) });
+        };
+        const bytes = ids.len * row_bytes;
+        try f.zero(f.s.raw_embed, bytes);
+        for (ids, 0..) |id, r| {
+            if (try @import("embedding.zig").owner(id) == f.w.share.rank)
+                try f.copy(f.s.raw_embed + r * row_bytes, f.w.embed + (id - first) * row_bytes, row_bytes);
+        }
+        try f.gather(f.s.raw_embed, f.s.parts, bytes);
+        for (ids, 0..) |id, r| {
+            const rank = try @import("embedding.zig").owner(id);
+            try f.copy(out + r * row_bytes, f.s.parts + rank * bytes + r * row_bytes, row_bytes);
+        }
+    }
+
     pub fn prepareVerify(f: *Forward) !void {
         const m = try cuda.Module.load(f.d, cuda.kernels.inkling2_verify);
         f.verify_mod = m;
@@ -197,8 +216,7 @@ pub const Forward = struct {
         const s = f.s;
         if (rows == 0 or rows > s.rows or rows + s.pos > s.context) return error.InklingContext;
         for (ids) |id| if (id >= cfg.vocabulary) return error.InklingToken;
-        try cuda.copy_source.enqueue(f.d, s.ids, std.mem.sliceAsBytes(ids), f.stream);
-        try f.k.go(.embed, f.stream, .{ .x = ceil(rows * cfg.hidden, 256) }, 256, .{ s.ids, f.w.embed, s.raw_embed, int(rows), @as(i32, cfg.hidden) });
+        try f.embedding(ids, s.raw_embed);
         try f.k.go(.norm, f.stream, .{ .x = @intCast(rows) }, 256, .{ s.raw_embed, f.w.embed_norm, s.partial, @as(i32, cfg.hidden) });
         f.history_offset = 0;
         for (f.w.layer, 0..) |l, i| {

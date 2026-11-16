@@ -115,9 +115,9 @@ fn openPair(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     errdefer own.lt.close();
     var cache = core.checkpoint.cache.Load.begin(io, true);
     defer cache.deinit();
-    own.w = try wt.load(gpa, io, ctx.d, dir, share, cfg.layers);
+    own.w = try wt.loadProfile(gpa, io, ctx.d, dir, share, cfg.layers, o.drafts);
     errdefer own.w.deinit();
-    const kv = try share.kvBytes(o.context);
+    const kv = try share.kvBytes(o.context) + if (o.drafts) try @import("draft_config.zig").kvBytes(share, o.context) else 0;
     if (o.room) |r| if ((r.read(r.ctx) orelse 0) < kv + (1 << 30)) return error.InklingKvRoom;
     own.s = try state.State.init(gpa, ctx.d, &own.w, o.context);
     errdefer own.s.deinit();

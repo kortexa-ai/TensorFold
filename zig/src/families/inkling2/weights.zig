@@ -41,6 +41,7 @@ pub const Weights = struct {
     buffers: std.ArrayList(cuda.DeviceBuffer) = .empty,
     layer: []Layer = &.{},
     embed: u64 = 0,
+    embed_first: ?usize = null,
     embed_norm: u64 = 0,
     norm: u64 = 0,
     output_query: u64 = 0,
@@ -222,6 +223,10 @@ fn loadExperts(w: *Weights, io: std.Io, dir: []const u8, layer: usize, comptime 
 
 /// `count` is 48 when serving; the independent layer dump tool may load a shorter prefix for a bounded canary.
 pub fn load(gpa: std.mem.Allocator, io: std.Io, d: *const cuda.Driver, dir: []const u8, share: cfg.Share, count: usize) !Weights {
+    return loadProfile(gpa, io, d, dir, share, count, false);
+}
+
+pub fn loadProfile(gpa: std.mem.Allocator, io: std.Io, d: *const cuda.Driver, dir: []const u8, share: cfg.Share, count: usize, drafts: bool) !Weights {
     if (count == 0 or count > cfg.layers) return error.InklingGeometry;
     const path = try std.fs.path.join(gpa, &.{ dir, "checkpoint.json" });
     defer gpa.free(path);
@@ -232,7 +237,13 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, d: *const cuda.Driver, dir: []co
     errdefer w.deinit();
     var globals = try open(gpa, io, dir, "dense/global.safetensors");
     defer globals.closeCopied(io);
-    w.embed = try w.put((try get(&globals, "model.llm.embed.weight", .bf16, &.{ cfg.vocab, cfg.hidden })).bytes);
+    const embed = try get(&globals, "model.llm.embed.weight", .bf16, &.{ cfg.vocab, cfg.hidden });
+    if (drafts) {
+        const first = share.rank * cfg.vocab / share.world;
+        const end = (share.rank + 1) * cfg.vocab / share.world;
+        w.embed_first = first;
+        w.embed = try w.put(embed.bytes[first * cfg.hidden * 2 .. end * cfg.hidden * 2]);
+    } else w.embed = try w.put(embed.bytes);
     w.embed_norm = try w.put((try get(&globals, "model.llm.embed_norm.weight", .bf16, &.{cfg.hidden})).bytes);
     w.norm = try w.put((try get(&globals, "model.llm.norm.weight", .bf16, &.{cfg.hidden})).bytes);
     w.output_query = try w.put((try get(&globals, "model.llm.attn_res.output_query", .f32, &.{cfg.hidden})).bytes);

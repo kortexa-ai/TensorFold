@@ -10,6 +10,7 @@ test {
     _ = config;
     _ = @import("draft_config.zig");
     _ = @import("draft_commit.zig");
+    _ = @import("embedding.zig");
     _ = kernels;
     _ = native;
     _ = @import("link.zig");

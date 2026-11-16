@@ -188,7 +188,7 @@ pub const Draft = struct {
         if (d.pos != f.s.pos) return error.InklingDraftPosition;
         if (anchor >= cfg.vocabulary or depth > 7 or out.len < depth) return error.InklingDraftRows;
         if (depth == 0) return;
-        try f.copy(d.x, f.w.embed + @as(usize, anchor) * 4608 * 2, 4608 * 2);
+        try f.embedding(&.{anchor}, d.x);
         for (1..8) |r| try f.copy(d.x + r * 4608 * 2, d.mask, 4608 * 2);
         for (d.layers, 0..) |l, i| {
             try d.go(f, .norm, .{ .x = 8 }, 256, .{ d.x, l.input_norm, d.normed, @as(i32, 4608) });
